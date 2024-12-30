@@ -5,3 +5,32 @@ body, html {
   color: #fff;
   background-color: #145;
 }
+
+.control-panel {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+.pane-container {
+  height: 100%;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 3px;
+}
+
+.file-pane {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  border: 1px solid white;
+}
+
+.pane-title {
+  background: rgba(0,0,0,0.2);
+  font-weight: bold;
+  text-align: center;
+}
