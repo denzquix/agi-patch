@@ -34,3 +34,19 @@ body, html {
   font-weight: bold;
   text-align: center;
 }
+
+.pane-body {
+  overflow-y: scroll;
+  flex-grow: 1;
+}
+
+.pane-actions {
+  display: flex;
+  flex-flow: row;
+  flex-wrap: nowrap;
+  justify-content: stretch;
+}
+
+.pane-actions > button {
+  flex-grow: 1;
+}
