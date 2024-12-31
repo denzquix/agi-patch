@@ -15,6 +15,7 @@ options.push({
     tsPlugin({
       compilerOptions: {
         strict: true,
+        target: "es6",
       },
     }),
     copyPlugin({
