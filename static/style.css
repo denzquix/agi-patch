@@ -50,3 +50,17 @@ body, html {
 .pane-actions > button {
   flex-grow: 1;
 }
+
+.drop-hovering {
+  opacity: 0.5;
+}
+
+.folder > .contents {
+  padding-left: 2em;
+}
+
+.file-pane > .pane-body {
+  font-family: monospace;
+  font-weight: bold;
+  font-size: large;
+}
