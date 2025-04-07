@@ -37,12 +37,12 @@ const CRC32_TABLE = new Uint32Array([
 export const CRC32_INITIAL = 0;
 
 export default function crc32(bytes: Uint8Array, crc = CRC32_INITIAL): number {
-  crc ^= -1;  
+  crc = ~crc;
   for (let i = 0; i < bytes.length; i++) {
     const idx = (crc ^ bytes[i]) & 0xff;
     crc = CRC32_TABLE[idx] ^ (crc >>> 8);
   }
-  return (crc ^ -1) >>> 0;
+  return ~crc >>> 0;
 }
 
 export async function crc32FromStream(stream: ReadableStream<Uint8Array>): Promise<number> {
