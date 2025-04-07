@@ -57,3 +57,7 @@ export async function crc32FromStream(stream: ReadableStream<Uint8Array>): Promi
 
   return crc;
 }
+
+export function crc32FromBlob(b: Blob): Promise<number> {
+  return crc32FromStream(b.stream());
+}
