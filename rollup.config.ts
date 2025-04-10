@@ -1,6 +1,8 @@
 
 import { RollupOptions } from 'rollup';
 import tsPlugin from '@rollup/plugin-typescript';
+import nodeResolvePlugin from '@rollup/plugin-node-resolve';
+import cjsPlugin from '@rollup/plugin-commonjs';
 import copyPlugin from 'rollup-plugin-copy';
 
 const options = new Array<RollupOptions>();
@@ -17,6 +19,10 @@ options.push({
         strict: true,
         target: "es6",
       },
+    }),
+    cjsPlugin({
+    }),
+    nodeResolvePlugin({
     }),
     copyPlugin({
       targets: [
