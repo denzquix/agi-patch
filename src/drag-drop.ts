@@ -1,5 +1,5 @@
 
-export function makeFileReceiver(dropTarget: HTMLElement, button?: HTMLElement | null, filter?: string) {
+export function makeFileReceiver({dropTarget, button, filter}: {dropTarget: HTMLElement, button?: HTMLElement | null, filter?: string}) {
 
   let dragCounter = 0;
 

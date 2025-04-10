@@ -7,7 +7,10 @@ window.addEventListener('DOMContentLoaded', function() {
     const inputPaneBody = inputPane.querySelector<HTMLElement>('.pane-body');
     if (!inputPaneBody) throw new Error('input pane body not found');
     const inputAddButton = inputPane.querySelector<HTMLElement>('.pane-actions > .add-files');
-    makeFileReceiver(inputPane, inputAddButton);
+    makeFileReceiver({
+      dropTarget: inputPane,
+      button: inputAddButton,
+    });
     inputPane.addEventListener('received-files', (ev) => {
       function handleFileMap(fm: FileMap) {
         const fragment = document.createDocumentFragment();
