@@ -356,14 +356,17 @@ export class VFSFile extends VFSDirectoryEntry {
   constructor(volume: VFSVolume, parentDirectory: VFSDirectory, name: string, lastModified: number | Date | undefined | null, private content: Blob, private contentEncoding: VFSEncodingDescriptor = null) {
     super(volume, parentDirectory, name, lastModified == null ? undefined : Number(lastModified));
   }
+  stream(contentEncoding: VFSEncodingDescriptor = null) {
+    let stream = this.content.stream();
+    stream = decodeContentStream(stream, this.contentEncoding);
+    stream = encodeContentStream(stream, contentEncoding);
+    return stream;
+  }
   getContent(contentEncoding: VFSEncodingDescriptor = null) {
     if (areEncodingsEqual(contentEncoding, this.contentEncoding)) {
       return Promise.resolve(this.content);
     }
-    let stream = this.content.stream();
-    stream = decodeContentStream(stream, this.contentEncoding);
-    stream = encodeContentStream(stream, contentEncoding);
-    return new Response(stream).blob();
+    return new Response(this.stream()).blob();
   }
   replaceContent(newContent: Blob, contentEncoding: VFSEncodingDescriptor = null) {
     this.content = newContent;

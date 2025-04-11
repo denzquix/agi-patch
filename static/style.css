@@ -239,12 +239,16 @@ body {
   font-size: 14px;
 }
 
-.folder-icon::before {
+.tree-item.folder > .title::before {
   content: "📁";
 }
 
-.file-icon::before {
+.tree-item.file > .title::before {
   content: "📄";
+}
+
+.tree-item.archive > .title::before {
+  content: "📦";
 }
 
 /* For side by side file trees in Create Patch */
