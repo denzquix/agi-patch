@@ -189,6 +189,10 @@ body {
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
   transition: background-color 0.2s;
+  border-radius: 3px;
+  box-shadow: -2px -3px 6px inset var(--border-color);
+  font-family: 'Cascadia Mono', 'Segoe UI Mono', 'Fira Code', 'Menlo', 'Consolas', 'Liberation Mono', 'Courier New';
+  font-size: small;
 }
 
 .select-list li:hover {
@@ -208,10 +212,10 @@ body {
 .tree-view {
   margin-top: 15px;
   font-family: 'Cascadia Mono', 'Segoe UI Mono', 'Fira Code', 'Menlo', 'Consolas', 'Liberation Mono', 'Courier New';
+  font-size: small;
 }
 
 .tree-item {
-  padding: 8px 15px;
   transition: background-color 0.2s;
 }
 
@@ -226,7 +230,7 @@ body {
 }
 
 .tree-children {
-  margin-left: 25px;
+  margin-left: 1em;
   display: none;
 }
 
@@ -248,7 +252,7 @@ body {
 }
 
 .tree-item.archive > .title::before {
-  content: "📦";
+  content: "🗃️";
 }
 
 /* For side by side file trees in Create Patch */
