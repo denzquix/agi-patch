@@ -1,5 +1,28 @@
+import { VFSDirectory } from "./virtual-file-system";
 
-export function makeFileReceiver({dropTarget, button, filter}: {dropTarget: HTMLElement, button?: HTMLElement | null, filter?: string}) {
+export function makeFileReceiver({
+  dropTarget,
+  button,
+  filter,
+  targetDirectory,
+}: {
+  dropTarget: HTMLElement,
+  button?: HTMLElement | null,
+  filter?: string,
+  targetDirectory: VFSDirectory,
+}) {
+
+  function processEntry(name: string, fileOrMap: File | FileMap, dir: VFSDirectory) {
+    if (fileOrMap instanceof File) {
+      dir.createFile(name, fileOrMap, fileOrMap.lastModified);
+    }
+    else {
+      const subdir = dir.createDirectory(name, null);
+      for (const [name, subentry] of fileOrMap) {
+        processEntry(name, subentry, subdir);
+      }
+    }
+  }
 
   let dragCounter = 0;
 
@@ -37,7 +60,9 @@ export function makeFileReceiver({dropTarget, button, filter}: {dropTarget: HTML
     }
     if (result != null) {
       result.then(value => {
-        dropTarget.dispatchEvent(new CustomEvent('received-files', {detail:{files:value}}));
+        for (const [name, entry] of value) {
+          processEntry(name, entry, targetDirectory);
+        }
       });
     }
   });
@@ -53,7 +78,9 @@ export function makeFileReceiver({dropTarget, button, filter}: {dropTarget: HTML
       fileInput.addEventListener('change', function(ev) {
         if (fileInput.files) {
           processFileList(fileInput.files).then(value => {
-            dropTarget.dispatchEvent(new CustomEvent('received-files', {detail:{files:value}}));
+            for (const [name, entry] of value) {
+              processEntry(name, entry, targetDirectory);
+            }
           });
         }
       });
@@ -64,12 +91,6 @@ export function makeFileReceiver({dropTarget, button, filter}: {dropTarget: HTML
 }
 
 export type FileMap = Map<string, File | FileMap>;
-
-declare global {
-  interface HTMLElementEventMap {
-    'received-files': CustomEvent<{files:FileMap}>;
-  }
-}
 
 async function processFileList(items: FileList | DataTransferItemList): Promise<FileMap> {
   const result: FileMap = new Map();

@@ -69,7 +69,7 @@ export class VFSVolume {
   readonly events = new Subject<VFSEvent>();
 }
 
-abstract class VFSDirectoryEntry {
+export abstract class VFSDirectoryEntry {
   constructor(readonly volume: VFSVolume, parentDirectory: VFSDirectory | 'root', readonly name: string, readonly lastModified?: number) {
     if (parentDirectory === 'root') {
       if (this instanceof VFSDirectory) {
