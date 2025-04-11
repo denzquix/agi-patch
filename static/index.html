@@ -2,29 +2,107 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>AGI Patch</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patching Tool</title>
     <script src="agi-patch.js"></script>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="icon.png">    
   </head>
   <body>
-    <div class="control-panel">
-      <div class="pane-container">
-        <div class="input-pane file-pane">
-          <div class="pane-title">
-            Input
-          </div>
-          <div class="pane-body">
-          </div>
-          <div class="pane-actions">
-            <button class="add-files">Add Files...</button>
+    <div class="container" data-tab-context>
+      <div class="header">
+        <h1>Patching Tool</h1>
+      </div>
+      
+      <!-- Main Tabs -->
+      <div class="tabs">
+        <div class="tab active" data-tab="apply-patch">Apply Patch</div>
+        <div class="tab" data-tab="create-patch">Create Patch</div>
+      </div>
+      
+      <!-- Apply Patch Tab Content -->
+      <div class="tab-content active" data-tab-content="apply-patch">
+        <div class="section">
+          <div class="section-header">1. Select Patch File</div>
+          <div class="section-content" data-tab-context>
+            <div class="inner-tabs">
+              <div class="inner-tab active" data-tab="known-patches">Known Patches</div>
+              <div class="inner-tab" data-tab="upload-patch">Upload Patch</div>
+            </div>
+            
+            <div class="inner-tab-content active" data-tab-content="known-patches">
+              <ul class="select-list">
+                <li>KingsQuest1_RubberTreeEdition_v1.0.patch</li>
+              </ul>
+            </div>
+            
+            <div class="inner-tab-content" data-tab-content="upload-patch">
+              <div class="dropzone">
+                <div class="icon">📥</div>
+                <p>Drag and drop patch file here or click to browse</p>
+                <input type="file" id="patch-file-input" style="display: none" accept=".patch" onchange="handleFileSelect(this)">
+              </div>
+              <div style="margin-top: 15px; display: none;">
+                <p>Selected patch: <span id="patch-filename"></span></p>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="output-pane file-pane">
-          <div class="pane-title">
-            Output
+        
+        <div class="section">
+          <div class="section-header">2. Select Files to Patch</div>
+          <div class="section-content">
+            <div class="dropzone" data-target-volume="files-to-patch">
+              <div class="icon">📥</div>
+              <p>Drag and drop files or folders here or click to browse</p>
+              <input type="file" id="target-files-input" style="display: none" webkitdirectory multiple onchange="handleMultipleFiles(this, 'target-files-tree')">
+            </div>
+            
+          <div id="target-files-tree" class="tree-view" data-volume="files-to-patch">
+            <!-- Tree will be populated via JavaScript -->
           </div>
         </div>
+      </div>
+        
+      <button class="file-browser-btn" style="margin: 0 20px 20px auto; display: block;">Apply Patch</button>
+    </div>
+    
+    <!-- Create Patch Tab Content -->
+    <div data-tab-content="create-patch" class="tab-content">
+      <div class="section">
+        <div class="section-header">Compare Files</div>
+        <div class="section-content">
+          <div class="side-by-side">
+            <div>
+              <h3>Original Files</h3>
+              <div class="dropzone" data-target-volume="original-files">
+                <div class="icon">📥</div>
+                <p>Drag and drop original files or folders here</p>
+                <input type="file" style="display: none" webkitdirectory multiple>
+              </div>
+              
+              <div class="tree-view" data-volume="original-files">
+                <!-- Tree will be populated via JavaScript -->
+              </div>
+            </div>
+            
+            <div>
+              <h3>Modified Files</h3>
+              <div class="dropzone" data-target-volume="modified-files">
+                <div class="icon">📥</div>
+                <p>Drag and drop modified files or folders here</p>
+                <input type="file" style="display: none" webkitdirectory multiple>
+              </div>
+              
+              <div class="tree-view" data-volume="modified-files">
+                <!-- Tree will be populated via JavaScript -->
+              </div>
+            </div>
+          </div>
+        </div>
+        </div>
+        
+        <button class="file-browser-btn" style="margin: 0 20px 20px auto; display: block;">Create Patch</button>
       </div>
     </div>
   </body>
