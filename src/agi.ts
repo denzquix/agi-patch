@@ -11,6 +11,15 @@ const commonPrefixLen = (a: string, b: string) => {
   return i;
 };
 
+const AVIS_DURGAN = new Uint8Array([...'Avis Durgan'].map(v => v.charCodeAt(0)));
+
+const avisDurgan = (b: Uint8Array) => {
+  for (let i = 0; i < b.length; i++) {
+    b[i] ^= AVIS_DURGAN[i % AVIS_DURGAN.length];
+  }
+  return b;
+};
+
 export function unpackWords(wordsData: Uint8Array): AGIWordsFile {
   let pos = 26 * 2;
   if (pos >= wordsData.length) return {words:new Map()};
@@ -83,4 +92,68 @@ export function packWords({words, suffix = new Uint8Array([0])}: AGIWordsFile) {
   }
   bytes.set(suffix, pos);
   return bytes;
+}
+
+interface ObjectInfo {
+  name: Uint8Array;
+  startingRoom?: number;
+}
+
+interface ObjectFile {
+  objects: ObjectInfo[];
+  masked: boolean;
+  recordLen: 3 | 4;
+  suppressFinalTerminator?: boolean;
+}
+
+export function unpackObjects(objectsData: Uint8Array): ObjectFile {
+  let recordLen: 3 | 4 = 4, masked = true;
+  masked = (objectsData[0] | (objectsData[1] << 8)) > objectsData.length;
+  if (masked) {
+    objectsData = avisDurgan(objectsData.slice());
+    console.log(objectsData);
+  }
+  if (objectsData[3] !== 0) recordLen = 3;
+  let objects: ObjectInfo[] = [];
+  let pos = 0;
+  let stopPos = Infinity;
+  let suppressFinalTerminator = false;
+  while ((pos+recordLen) <= stopPos) {
+    const offset = recordLen + (objectsData[pos] | (objectsData[pos+1] << 8));
+    stopPos = Math.min(stopPos, offset);
+    let endOffset = objectsData.indexOf(0, offset);
+    if (endOffset === -1) {
+      endOffset = objectsData.length;
+      suppressFinalTerminator = true;
+    }
+    const name = objectsData.subarray(offset, endOffset), startingRoom = objectsData[pos + 2];
+    objects.push(startingRoom ? {name, startingRoom} : {name});
+    pos += recordLen;
+  }
+  return { objects, masked, recordLen, suppressFinalTerminator, };
+}
+
+export function packObjects({ recordLen, objects, masked, suppressFinalTerminator }: ObjectFile): Uint8Array {
+  const buf = new Uint8Array(recordLen * objects.length + objects.reduce((total, object) => total + object.name.length + 1, 0));
+  let pos = recordLen * objects.length;
+  const posCache = new Map<string, number>();
+  for (let i = 0; i < objects.length; i++) {
+    const name = String.fromCharCode(...objects[i].name);
+    if (posCache.has(name)) {
+      const cached = posCache.get(name)!;
+      buf[i*recordLen] = cached & 0xff;
+      buf[i*recordLen + 1] = (cached >>> 8);
+    }
+    else {
+      const encPos = pos - recordLen;
+      posCache.set(name, encPos);
+      buf[i*recordLen] = encPos & 0xff;
+      buf[i*recordLen + 1] = (encPos >>> 8);
+      buf.set(objects[i].name, pos);
+      pos += objects[i].name.length + 1;
+    }
+    buf[i*recordLen + 2] = objects[i].startingRoom || 0;
+  }
+  if (masked) avisDurgan(buf);
+  return buf.subarray(0, pos + (suppressFinalTerminator?-1:0));
 }
