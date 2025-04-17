@@ -191,15 +191,15 @@ export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject |
   let packedDirs: AGIProject['packedDirs'];
   let useCompression: boolean;
   if (logdirFile) {
-    const viewdirFile = folder.getFile('viewdir');
     const picdirFile = folder.getFile('picdir');
+    const viewdirFile = folder.getFile('viewdir');
     const snddirFile = folder.getFile('snddir');
     if (!(viewdirFile && picdirFile && snddirFile)) {
       return null;
     }
     logdir = new Uint8Array(await (await logdirFile.getContent()).arrayBuffer());
-    viewdir = new Uint8Array(await (await viewdirFile.getContent()).arrayBuffer());
     picdir = new Uint8Array(await (await picdirFile.getContent()).arrayBuffer());
+    viewdir = new Uint8Array(await (await viewdirFile.getContent()).arrayBuffer());
     snddir = new Uint8Array(await (await snddirFile.getContent()).arrayBuffer());
     packedDirs = false;
     useCompression = false;
@@ -219,12 +219,12 @@ export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject |
     const dirsData = new Uint8Array(await (await dirsFile.getContent()).arrayBuffer());
     const dirsDV = new DataView(dirsData.buffer, dirsData.byteOffset, dirsData.byteLength);
     const logdirOffset = dirsDV.getUint16(0, true);
-    const viewdirOffset = dirsDV.getUint16(2, true);
-    const picdirOffset = dirsDV.getUint16(4, true);
+    const picdirOffset = dirsDV.getUint16(2, true);
+    const viewdirOffset = dirsDV.getUint16(4, true);
     const snddirOffset = dirsDV.getUint16(6, true);
-    logdir = dirsData.subarray(logdirOffset, viewdirOffset);
-    viewdir = dirsData.subarray(viewdirOffset, picdirOffset);
-    picdir = dirsData.subarray(picdirOffset, snddirOffset);
+    logdir = dirsData.subarray(logdirOffset, picdirOffset);
+    picdir = dirsData.subarray(picdirOffset, viewdirOffset);
+    viewdir = dirsData.subarray(viewdirOffset, snddirOffset);
     snddir = dirsData.subarray(snddirOffset);
     useCompression = true;
   }
@@ -280,31 +280,41 @@ export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject |
       const decompressedLength = vol[offset + 3] | (vol[offset + 4] << 8);
       const compressedLength = vol[offset + 5] | (vol[offset + 6] << 8);
       let decompressed: Uint8Array;
+      let wasCompressed: boolean;
       if (decompressedLength === compressedLength) {
         decompressed = vol.subarray(offset + 7, offset + 7 + decompressedLength);
+        wasCompressed = false;
       }
       else {
+        wasCompressed = true;
         const compressed = vol.subarray(offset + 7, offset + 7 + compressedLength);
         decompressed = new Uint8Array(decompressedLength);
         try {
-          decompressLZW(compressed, decompressed);
+          if (picCompression) {
+            decompressed = decompressPIC(compressed);
+            if (decompressed.length !== decompressedLength) {
+              throw new Error('wrong decompressed length');
+            }
+          }
+          else {
+            decompressLZW(compressed, decompressed);
+          }
         }
-        catch {
+        catch (e) {
           return {
             type: 'invalid-resource',
             problem: 'compression-error',
             volNumber,
             offset,
+            error: e,
           };
         }
-      }
-      if (picCompression) {
-        decompressed = decompressPIC(decompressed);
       }
       return {
         type: 'raw-resource',
         resourceType: type,
         data: decompressed,
+        wasCompressed,
       };
     }
     else {
@@ -322,6 +332,7 @@ export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject |
         type: 'raw-resource',
         resourceType: type,
         data: vol.subarray(offset + 5, offset + 5 + length),
+        wasCompressed: false,
       };
     }
   }
@@ -329,7 +340,7 @@ export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject |
     words,
     objects,
     packedDirs,
-    logic: await Promise.all(readDir(logdir).map(v => v ? loadEntry(v, 'logic').then(x => x.type === 'raw-resource' ? unpackLogic(x.data, !useCompression) : x) : null)),
+    logic: await Promise.all(readDir(logdir).map(v => v ? loadEntry(v, 'logic').then(x => x.type === 'raw-resource' ? unpackLogic(x.data, !x.wasCompressed) : x) : null)),
     views: await Promise.all(readDir(viewdir).map(v => v ? loadEntry(v, 'view') : null)),
     pictures: await Promise.all(readDir(picdir).map(v => v ? loadEntry(v, 'picture') : null)),
     sounds: await Promise.all(readDir(snddir).map(v => v ? loadEntry(v, 'sound') : null)),
@@ -346,100 +357,81 @@ export async function *eachAGIProject(rootFolder: VFSDirectory) {
 // code based on xv3.pas by Lance Ewing
 // http://www.agidev.com/articles/agispec/examples/files/xv3.pas
 function decompressLZW(input: Uint8Array, output: Uint8Array): Uint8Array {
-  const MAX_BITS = 12;
-  const TABLE_SIZE = 18041;
-  const START_BITS = 9;
-  
-  let bits = 0;
-  let maxValue = 0;
-  let maxCode = 0;
-  let inputBitCount = 0;
-  let inputBitBuffer = 0;
-  
-  const prefixCode = new Uint16Array(TABLE_SIZE);
-  const appendCharacter = new Uint8Array(TABLE_SIZE);
-  
-  function setBits(value: number) {
-    if (value === MAX_BITS) return;
-    bits = value;
-    maxValue = (1 << bits) - 1;
-    maxCode = maxValue - 1;
+  const n = decompressLZW2(input);
+  if (n.length === output.length) {
+    output.set(n);
+    return output;
   }
+  else {
+    throw new Error('wrong length: ' + n.length + ' (expected ' + output.length + ')');
+  }
+  function decompressLZW2(input: Uint8Array): Uint8Array {
+    const output: number[] = [];
   
-  function decodeString(code: number): number[] {
-    const stack: number[] = [];
-    let i = 0;
-    while (code > 255) {
-      stack.push(appendCharacter[code]);
-      code = prefixCode[code];
-      if (++i > 4000) throw new Error('Fatal error during code expansion');
-    }
-    stack.push(code);
-    return stack.reverse();
-  }
-
-  let inputPos = 0;
+    let bitBuffer = 0;
+    let bitCount = 0;
+    let bitPos = 0;
   
-  function inputCode(): number {
-    while (inputBitCount <= 24 && inputPos < input.length) {
-      inputBitBuffer |= input[inputPos++] << inputBitCount;
-      inputBitCount += 8;
+    const readBits = (numBits: number): number => {
+      while (bitCount < numBits) {
+        if (bitPos >= input.length) return 257; // end of data
+        bitBuffer |= input[bitPos++] << bitCount;
+        bitCount += 8;
+      }
+      const result = bitBuffer & ((1 << numBits) - 1);
+      bitBuffer >>>= numBits;
+      bitCount -= numBits;
+      return result;
+    };
+  
+    const resetTable = () => {
+      const table = new Map<number, number[]>();
+      for (let i = 0; i < 256; i++) {
+        table.set(i, [i]);
+      }
+      return table;
+    };
+  
+    let codeSize = 9;
+    let table = resetTable();
+    let nextCode = 258;
+  
+    let prev: number[] = [];
+  
+    while (true) {
+      const code = readBits(codeSize);
+      if (code === 257) break; // end of data
+      if (code === 256) {
+        codeSize = 9;
+        table = resetTable();
+        nextCode = 258;
+        prev = [];
+        continue;
+      }
+  
+      let entry: number[];
+      if (table.has(code)) {
+        entry = table.get(code)!;
+      } else if (code >= nextCode && prev.length) {
+        entry = [...prev, prev[0]];
+      } else {
+        throw new Error(`Invalid LZW code: ${code}`);
+      }
+  
+      output.push(...entry);
+  
+      if (prev.length && nextCode < 4096) {
+        table.set(nextCode++, [...prev, entry[0]]);
+        if (nextCode === (1 << codeSize) && codeSize < 12) {
+          codeSize++;
+        }
+      }
+  
+      prev = entry;
     }
-    const result = inputBitBuffer & ((1 << bits) - 1);
-    inputBitBuffer >>= bits;
-    inputBitCount -= bits;
-    if (inputPos >= input.length) return maxValue;
-    return result;
+  
+    return new Uint8Array(output);
   }
-
-  let outPos = 0;
-
-  setBits(START_BITS);
-  let nextCode = 257;
-
-  let oldCode = inputCode();
-  let character = oldCode;
-  let newCode = inputCode();
-
-  while (outPos < output.length) {
-    if (newCode === 0x100) {
-      nextCode = 258;
-      setBits(START_BITS);
-      oldCode = inputCode();
-      character = oldCode;
-      output[outPos++] = character;
-      newCode = inputCode();
-      continue;
-    }
-
-    let decoded: number[];
-    if (newCode >= nextCode) {
-      decoded = decodeString(oldCode);
-      decoded.push(character);
-    } 
-    else {
-      decoded = decodeString(newCode);
-    }
-
-    character = decoded[decoded.length - 1];
-    for (let i = 0; i < decoded.length && outPos < output.length; i++) {
-      output[outPos++] = decoded[i];
-    }
-
-    if (nextCode <= maxCode) {
-      prefixCode[nextCode] = oldCode;
-      appendCharacter[nextCode] = character;
-      nextCode++;
-    } 
-    else {
-      setBits(bits + 1);
-    }
-
-    oldCode = newCode;
-    newCode = inputCode();
-  }
-
-  return output;
 }
 
 function decompressPIC(pic: Uint8Array) {
@@ -483,7 +475,7 @@ function decompressPIC(pic: Uint8Array) {
 
 function unpackLogic(buf: Uint8Array, maskMessages: boolean): AGILogic | InvalidLogic {
   const textOffset = 2 + (buf[0] | (buf[1] << 8));
-  if (textOffset+3 >= buf.byteLength) {
+  if (textOffset+3 > buf.byteLength) {
     return {
       type: 'invalid-logic',
       problem: 'truncated',
@@ -563,12 +555,14 @@ export interface InvalidResource {
   volNumber:number;
   offset:number;
   recordData?: Uint8Array | null;
+  error?: unknown;
 }
 
 export interface RawResource<T extends 'logic' | 'sound' | 'picture' | 'view' = 'logic' | 'sound' | 'picture' | 'view'> {
   type: 'raw-resource';
   resourceType: T;
   data: Uint8Array;
+  wasCompressed: boolean;
 }
 
 export interface InvalidLogic {
