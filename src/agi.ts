@@ -281,23 +281,22 @@ export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject |
       const compressedLength = vol[offset + 5] | (vol[offset + 6] << 8);
       let decompressed: Uint8Array;
       let wasCompressed: boolean;
-      if (decompressedLength === compressedLength) {
+      if (decompressedLength === compressedLength && !picCompression) {
         decompressed = vol.subarray(offset + 7, offset + 7 + decompressedLength);
         wasCompressed = false;
       }
       else {
         wasCompressed = true;
         const compressed = vol.subarray(offset + 7, offset + 7 + compressedLength);
-        decompressed = new Uint8Array(decompressedLength);
         try {
           if (picCompression) {
             decompressed = decompressPIC(compressed);
-            if (decompressed.length !== decompressedLength) {
-              throw new Error('wrong decompressed length');
-            }
           }
           else {
-            decompressLZW(compressed, decompressed);
+            decompressed = decompressLZW(compressed);
+          }
+          if (decompressed.length !== decompressedLength) {
+            throw new Error('wrong decompressed length');
           }
         }
         catch (e) {
@@ -356,82 +355,74 @@ export async function *eachAGIProject(rootFolder: VFSDirectory) {
 
 // code based on xv3.pas by Lance Ewing
 // http://www.agidev.com/articles/agispec/examples/files/xv3.pas
-function decompressLZW(input: Uint8Array, output: Uint8Array): Uint8Array {
-  const n = decompressLZW2(input);
-  if (n.length === output.length) {
-    output.set(n);
-    return output;
-  }
-  else {
-    throw new Error('wrong length: ' + n.length + ' (expected ' + output.length + ')');
-  }
-  function decompressLZW2(input: Uint8Array): Uint8Array {
-    const output: number[] = [];
-  
-    let bitBuffer = 0;
-    let bitCount = 0;
-    let bitPos = 0;
-  
-    const readBits = (numBits: number): number => {
-      while (bitCount < numBits) {
-        if (bitPos >= input.length) return 257; // end of data
-        bitBuffer |= input[bitPos++] << bitCount;
-        bitCount += 8;
-      }
-      const result = bitBuffer & ((1 << numBits) - 1);
-      bitBuffer >>>= numBits;
-      bitCount -= numBits;
-      return result;
-    };
-  
-    const resetTable = () => {
-      const table = new Map<number, number[]>();
-      for (let i = 0; i < 256; i++) {
-        table.set(i, [i]);
-      }
-      return table;
-    };
-  
-    let codeSize = 9;
-    let table = resetTable();
-    let nextCode = 258;
-  
-    let prev: number[] = [];
-  
-    while (true) {
-      const code = readBits(codeSize);
-      if (code === 257) break; // end of data
-      if (code === 256) {
-        codeSize = 9;
-        table = resetTable();
-        nextCode = 258;
-        prev = [];
-        continue;
-      }
-  
-      let entry: number[];
-      if (table.has(code)) {
-        entry = table.get(code)!;
-      } else if (code >= nextCode && prev.length) {
-        entry = [...prev, prev[0]];
-      } else {
-        throw new Error(`Invalid LZW code: ${code}`);
-      }
-  
-      output.push(...entry);
-  
-      if (prev.length && nextCode < 4096) {
-        table.set(nextCode++, [...prev, entry[0]]);
-        if (nextCode === (1 << codeSize) && codeSize < 12) {
-          codeSize++;
-        }
-      }
-  
-      prev = entry;
+function decompressLZW(input: Uint8Array): Uint8Array {
+  const output: number[] = [];
+
+  let bitBuffer = 0;
+  let bitCount = 0;
+  let bitPos = 0;
+
+  const readBits = (numBits: number): number => {
+    while (bitCount < numBits) {
+      if (bitPos >= input.length) return 257; // end of data
+      bitBuffer |= input[bitPos++] << bitCount;
+      bitCount += 8;
     }
-  
-    return new Uint8Array(output);
+    const result = bitBuffer & ((1 << numBits) - 1);
+    bitBuffer >>>= numBits;
+    bitCount -= numBits;
+    return result;
+  };
+
+  const resetTable = () => {
+    const table = new Map<number, number[]>();
+    for (let i = 0; i < 256; i++) {
+      table.set(i, [i]);
+    }
+    return table;
+  };
+
+  let codeSize = 9;
+  let table = resetTable();
+  let nextCode = 258;
+
+  let prev: number[] = [];
+
+  while (true) {
+    const code = readBits(codeSize);
+    if (code === 257) break; // end of data
+    if (code === 256) {
+      codeSize = 9;
+      table = resetTable();
+      nextCode = 258;
+      prev = [];
+      continue;
+    }
+
+    let entry: number[];
+    if (table.has(code)) {
+      entry = table.get(code)!;
+    }
+    else if (code >= nextCode && prev.length) {
+      entry = [...prev, prev[0]];
+    }
+    else {
+      throw new Error(`Invalid LZW code: ${code}`);
+    }
+
+    output.push(...entry);
+
+    if (prev.length && nextCode < 4096) {
+      table.set(nextCode++, [...prev, entry[0]]);
+      if (nextCode === (1 << codeSize) && codeSize < 11) {
+        codeSize++;
+      }
+    }
+
+    prev = entry;
   }
+
+  return new Uint8Array(output);
 }
 
 function decompressPIC(pic: Uint8Array) {
