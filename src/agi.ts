@@ -247,7 +247,7 @@ export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject |
   function getVol(volNumber: number): Promise<Uint8Array | null> {
     const cached = volCache.get(volNumber);
     if (cached) return cached;
-    const volFile = folder.getFile(prefix+'vol.'+volNumber);
+    const volFile = folder.getFile((packedDirs && !packedDirs.suppressVolPrefix ? prefix : '')+'vol.'+volNumber);
     if (!volFile) return Promise.resolve(null);
     const awaitVol = volFile.getContent().then(blob => blob.arrayBuffer()).then(ab => new Uint8Array(ab));
     volCache.set(volNumber, awaitVol);
@@ -264,7 +264,20 @@ export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject |
       };
     }
     if (vol[offset] !== 0x12 || vol[offset+1] !== 0x34) {
-      throw new Error('signature not found');
+      if (offset+2 > vol.length && !(offset+1 === vol.length && vol[offset] === 0x12)) {
+        return {
+          type: 'invalid-resource',
+          problem: 'truncated',
+          volNumber,
+          offset,
+        };  
+      }
+      return {
+        type: 'invalid-resource',
+        problem: 'invalid-signature',
+        volNumber,
+        offset,
+      };
     }
     if (useCompression) {
       const picCompression = Boolean(vol[offset+2] & 0x80);
