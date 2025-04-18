@@ -431,6 +431,94 @@ function decompressLZW(input: Uint8Array): Uint8Array {
   return new Uint8Array(output);
 }
 
+function compressLZW(input: Uint8Array): Uint8Array {
+  const INITIAL_BITS = 9;
+  const MAX_BITS = 11;
+  const LAST_CODE = (1 << MAX_BITS) - 1;
+  const RESET_CODE = 0x100;
+  const STOP_CODE = 0x101;
+  const FIRST_DYNAMIC_CODE = STOP_CODE + 1;
+  const output: number[] = [];
+
+  let bitBuffer = 0;
+  let bitCount = 0;
+
+  let logBuf: string[] = [];
+
+  const writeBits = (code: number, numBits: number) => {
+    logBuf.push(numBits + ':' + code);
+    bitBuffer |= code << bitCount;
+    bitCount += numBits;
+    while (bitCount >= 8) {
+      output.push(bitBuffer & 0xff);
+      bitBuffer >>>= 8;
+      bitCount -= 8;
+    }
+  };
+
+  const flushBits = () => {
+    if (bitCount > 0) {
+      output.push(bitBuffer & 0xff);
+      bitBuffer = 0;
+      bitCount = 0;
+    }
+  };
+
+  const resetTable = () => {
+    const table = new Map<string, number>();
+    for (let i = 0; i < 256; i++) {
+      table.set(String.fromCharCode(i), i);
+    }
+    return table;
+  };
+
+  let codeSize = INITIAL_BITS;
+  let table = resetTable();
+  let nextCode = FIRST_DYNAMIC_CODE;
+  let currentString = '';
+
+  writeBits(RESET_CODE, codeSize);
+
+  for (let i = 0; i < input.length; i++) {
+    const byte = input[i];
+    const newString = currentString + String.fromCharCode(byte);
+
+    if (table.has(newString)) {
+      currentString = newString;
+    }
+    else {
+      writeBits(table.get(currentString)!, codeSize);
+
+      if (nextCode <= LAST_CODE) {
+        table.set(newString, nextCode++);
+        if (nextCode - 1 === (1 << codeSize) && codeSize < MAX_BITS) {
+          codeSize++;
+        }
+      }
+
+      if (nextCode > LAST_CODE) {
+        writeBits(RESET_CODE, codeSize);
+        codeSize = INITIAL_BITS;
+        table = resetTable();
+        nextCode = FIRST_DYNAMIC_CODE;
+      }
+
+      currentString = String.fromCharCode(byte);
+    }
+  }
+
+  // Write remaining string
+  if (currentString.length > 0) {
+    writeBits(table.get(currentString)!, codeSize);
+  }
+
+  // Write stop code
+  writeBits(STOP_CODE, codeSize);
+  flushBits();
+
+  return new Uint8Array(output);
+}
+
 function decompressPIC(pic: Uint8Array) {
   let bytePos = 0;
   let halfByte = false;
