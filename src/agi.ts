@@ -356,6 +356,12 @@ export async function *eachAGIProject(rootFolder: VFSDirectory) {
 // code based on xv3.pas by Lance Ewing
 // http://www.agidev.com/articles/agispec/examples/files/xv3.pas
 function decompressLZW(input: Uint8Array): Uint8Array {
+  const INITIAL_BITS = 9;
+  const MAX_BITS = 11;
+  const LAST_CODE = (1 << MAX_BITS)-1;
+  const RESET_CODE = 0x100;
+  const STOP_CODE = 0x101;
+  const FIRST_DYNAMIC_CODE = STOP_CODE + 1;
   const output: number[] = [];
 
   let bitBuffer = 0;
@@ -364,7 +370,7 @@ function decompressLZW(input: Uint8Array): Uint8Array {
 
   const readBits = (numBits: number): number => {
     while (bitCount < numBits) {
-      if (bitPos >= input.length) return 257; // end of data
+      if (bitPos >= input.length) return STOP_CODE;
       bitBuffer |= input[bitPos++] << bitCount;
       bitCount += 8;
     }
@@ -382,19 +388,19 @@ function decompressLZW(input: Uint8Array): Uint8Array {
     return table;
   };
 
-  let codeSize = 9;
+  let codeSize = INITIAL_BITS;
   let table = resetTable();
-  let nextCode = 258;
+  let nextCode = FIRST_DYNAMIC_CODE;
 
   let prev: number[] = [];
 
   while (true) {
     const code = readBits(codeSize);
-    if (code === 257) break; // end of data
-    if (code === 256) {
-      codeSize = 9;
+    if (code === STOP_CODE) break; // end of data
+    if (code === RESET_CODE) {
+      codeSize = INITIAL_BITS;
       table = resetTable();
-      nextCode = 258;
+      nextCode = FIRST_DYNAMIC_CODE;
       prev = [];
       continue;
     }
@@ -412,9 +418,9 @@ function decompressLZW(input: Uint8Array): Uint8Array {
 
     output.push(...entry);
 
-    if (prev.length && nextCode < 4096) {
+    if (prev.length && nextCode <= LAST_CODE) {
       table.set(nextCode++, [...prev, entry[0]]);
-      if (nextCode === (1 << codeSize) && codeSize < 11) {
+      if (nextCode === (1 << codeSize) && codeSize < MAX_BITS) {
         codeSize++;
       }
     }
