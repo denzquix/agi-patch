@@ -172,7 +172,7 @@ export interface AGIProject {
   logic: Array<AGILogic | InvalidLogic | InvalidResource | null>;
   pictures: Array<RawResource<'picture'> | InvalidResource | null>;
   sounds: Array<RawResource<'sound'> | InvalidResource | null>;
-  views: Array<RawResource<'view'> | InvalidResource | null>;
+  views: Array<AGIView | InvalidResource | null>;
 }
 
 export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject | null> {
@@ -353,7 +353,7 @@ export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject |
     objects,
     packedDirs,
     logic: await Promise.all(readDir(logdir).map(v => v ? loadEntry(v, 'logic').then(x => x.type === 'raw-resource' ? unpackLogic(x.data, !x.wasCompressed) : x) : null)),
-    views: await Promise.all(readDir(viewdir).map(v => v ? loadEntry(v, 'view') : null)),
+    views: await Promise.all(readDir(viewdir).map(v => v ? loadEntry(v, 'view').then(x => x.type === 'raw-resource' ? unpackView(x.data) : x) : null)),
     pictures: await Promise.all(readDir(picdir).map(v => v ? loadEntry(v, 'picture') : null)),
     sounds: await Promise.all(readDir(snddir).map(v => v ? loadEntry(v, 'sound') : null)),
   };
@@ -667,4 +667,87 @@ export interface InvalidLogic {
   type: 'invalid-logic';
   problem: 'truncated';
   data: Uint8Array;
+}
+
+export interface AGICel {
+  width: number;
+  height: number;
+  transparencyColor: number;
+  pixelData: Uint8Array;
+}
+
+export interface AGILoop {
+  cels: AGICel[];
+}
+
+export interface AGIView {
+  type: 'view';
+  signature: number;
+  description?: Uint8Array | null;
+  loops: AGILoop[];
+}
+
+function unpackView(data: Uint8Array): AGIView | InvalidResource {
+  const signature = data[0] | (data[1] << 8);
+  const loops = new Array<AGILoop>(data[2]);
+  const descriptionPos = data[3] | (data[4] << 8);
+  let description: Uint8Array | null;
+  if (descriptionPos) {
+    let endOffset = data.indexOf(0, descriptionPos);
+    if (endOffset === -1) endOffset = data.length;
+    description = data.subarray(descriptionPos, endOffset);
+  }
+  else {
+    description = null;
+  }
+  for (let loop_i = 0; loop_i < loops.length; loop_i++) {
+    const loopPos = data[5] |(data[6] << 8);
+    const cels = new Array<AGICel>(data[loopPos]);
+    for (let cel_i = 0; cel_i < cels.length; cel_i++) {
+      const celPos = loopPos + (data[loopPos + 1 + cel_i*2] | (data[loopPos + 1 + cel_i*2 + 1] << 8));
+      const width = data[celPos];
+      const height = data[celPos+1];
+      const transpMirror = data[celPos+2];
+      const transparencyColor = transpMirror & 0xf;
+      const mirror = Boolean(transpMirror & 0x80) && loop_i !== ((transpMirror >>> 4) & 0x7);
+      const celData = new Uint8Array(width * height);
+      celData.fill(transparencyColor);
+      let readPos = celPos + 3;
+      for (let y = 0; y < height; y++) {
+        let x = 0;
+        for (;;) {
+          if (readPos >= data.length) {
+            throw new Error('truncated view data');
+          }
+          const b = data[readPos++];
+          if (b === 0) break;
+          const color = b >>> 4;
+          const len = b & 0xf;
+          celData.fill(color, y*width + x, y*width + x + len);
+          x += len;
+          if (x > width) {
+            throw new Error('out of bounds');
+          }
+        }
+      }
+      if (mirror) {
+        for (let y = 0; y < height; y++) {
+          celData.subarray(y*width, (y+1)*width).reverse();
+        }
+      }
+      cels[cel_i] = {
+        width,
+        height,
+        transparencyColor,
+        pixelData: celData,
+      };
+    }
+    loops[loop_i] = {cels};
+  }
+  return {
+    type: 'view',
+    signature,
+    description,
+    loops,
+  };
 }
