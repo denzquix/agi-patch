@@ -701,7 +701,7 @@ function unpackView(data: Uint8Array): AGIView | InvalidResource {
     description = null;
   }
   for (let loop_i = 0; loop_i < loops.length; loop_i++) {
-    const loopPos = data[5] |(data[6] << 8);
+    const loopPos = data[5 + loop_i*2] |(data[5 + loop_i*2 + 1] << 8);
     const cels = new Array<AGICel>(data[loopPos]);
     for (let cel_i = 0; cel_i < cels.length; cel_i++) {
       const celPos = loopPos + (data[loopPos + 1 + cel_i*2] | (data[loopPos + 1 + cel_i*2 + 1] << 8));
