@@ -172,7 +172,7 @@ export interface AGIProject {
   logic: Array<AGILogic | InvalidLogic | InvalidResource | null>;
   pictures: Array<RawResource<'picture'> | InvalidResource | null>;
   sounds: Array<RawResource<'sound'> | InvalidResource | null>;
-  views: Array<AGIView | InvalidResource | null>;
+  views: Array<AGIView | InvalidResource | InvalidView | null>;
 }
 
 export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject | null> {
@@ -687,8 +687,28 @@ export interface AGIView {
   loops: AGILoop[];
 }
 
-function unpackView(data: Uint8Array): AGIView | InvalidResource {
+export interface InvalidView {
+  type: 'invalid-view';
+  problem: 'truncated-view-data' | 'pixel-data-exceeds-row' | 'unknown-signature';
+  rawData: Uint8Array;
+}
+
+function unpackView(data: Uint8Array): AGIView | InvalidResource | InvalidView {
   const signature = data[0] | (data[1] << 8);
+  switch (signature) {
+    case 0x0100: case 0x0101: case 0x0102: case 0x0200: case 0x0700: case 0x0500: case 0x0103:
+    case 0x0201: case 0x0202: case 0x0400: case 0x0401: case 0x0301: case 0x0203: case 0x0601:
+    case 0x0501: case 0x0302: {
+      break;
+    }
+    default: {
+      return {
+        type: 'invalid-view',
+        problem: 'unknown-signature',
+        rawData: data,
+      };
+    }
+  }
   const loops = new Array<AGILoop>(data[2]);
   const descriptionPos = data[3] | (data[4] << 8);
   let description: Uint8Array | null;
@@ -717,7 +737,11 @@ function unpackView(data: Uint8Array): AGIView | InvalidResource {
         let x = 0;
         for (;;) {
           if (readPos >= data.length) {
-            throw new Error('truncated view data');
+            return {
+              type: 'invalid-view',
+              problem: 'truncated-view-data',
+              rawData: data,
+            };
           }
           const b = data[readPos++];
           if (b === 0) break;
@@ -726,7 +750,11 @@ function unpackView(data: Uint8Array): AGIView | InvalidResource {
           celData.fill(color, y*width + x, y*width + x + len);
           x += len;
           if (x > width) {
-            throw new Error('out of bounds');
+            return {
+              type: 'invalid-view',
+              problem: 'pixel-data-exceeds-row',
+              rawData: data,
+            };
           }
         }
       }
