@@ -751,3 +751,112 @@ function unpackView(data: Uint8Array): AGIView | InvalidResource {
     loops,
   };
 }
+
+function areMirroredLoops(loop1: AGILoop, loop2: AGILoop) {
+  if (loop1.cels.length !== loop2.cels.length) return false;
+  const cel_count = loop1.cels.length;
+  for (let cel_i = 0; cel_i < cel_count; cel_i++) {
+    const cel1 = loop1.cels[cel_i], cel2 = loop2.cels[cel_i];
+    if (cel1.width !== cel2.width
+    || cel1.height !== cel2.height
+    || cel1.transparencyColor !== cel2.transparencyColor) {
+      return false;
+    }
+    const { width, height } = cel1;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x <  width; x++) {
+        if (cel1.pixelData[y*width + x] !== cel2.pixelData[(y+1)*width-(1+x)]) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+function packView(view: AGIView): Uint8Array {
+  const mirrorLoops = new Array<number>(view.loops.length).fill(-1);
+  for (let loop_i = 0; loop_i < Math.min(view.loops.length, 8) - 1; loop_i++) {
+    if (mirrorLoops[loop_i] !== -1) continue;
+    for (let loop_j = loop_i+1; loop_j < 8; loop_j++) {
+      if (mirrorLoops[loop_j] !== -1) continue;
+      if (areMirroredLoops(view.loops[loop_i], view.loops[loop_j])) {
+        mirrorLoops[loop_i] = loop_j;
+        mirrorLoops[loop_j] = loop_i;
+        break;
+      }
+    }
+  }
+  const buf = new Uint8Array(
+    5 + view.loops.length * 2 +
+    (view.description ? view.description.length + 1 : 0) +
+    view.loops.reduce(
+      (total, loop) => (
+        total + 1 + loop.cels.length * 2 +
+        loop.cels.reduce((total, cel) => total + 3 + (cel.width+1)*cel.height, 0)
+      ),
+      0
+    )
+  );
+  buf[0] = view.signature & 0xff;
+  buf[1] = (view.signature >>> 8) & 0xff;
+  buf[2] = view.loops.length;
+  let pos = 5 + view.loops.length * 2;
+  for (let i = 0; i < view.loops.length; i++) {
+    const isMirror = mirrorLoops[i] !== -1;
+    if (isMirror && mirrorLoops[i] < i) {
+      buf[5 + i*2] = buf[5 + mirrorLoops[i]*2];
+      buf[5 + i*2 + 1] = buf[5 + mirrorLoops[i]*2 + 1];
+      continue;
+    }
+    const mirrorCode = isMirror ? 0x80 | (i << 4) : 0x00;
+    const loopPos = pos;
+    buf[5 + i*2] = loopPos & 0xff;
+    buf[5 + i*2 + 1] = (loopPos >> 8) & 0xff;
+    const loop = view.loops[i];
+    buf[loopPos] = loop.cels.length;
+    pos += 1 + loop.cels.length * 2;
+    const dataStart = pos;
+    for (let cel_i = 0; cel_i < loop.cels.length; cel_i++) {
+      const celPos = pos - loopPos;
+      buf[loopPos + 1 + cel_i*2] = celPos & 0xff;
+      buf[loopPos + 1 + cel_i*2 + 1] = (celPos >>> 8) & 0xff;
+      const cel = loop.cels[cel_i];
+      buf[pos] = cel.width;
+      buf[pos+1] = cel.height;
+      buf[pos+2] = mirrorCode | cel.transparencyColor;
+      pos += 3;
+      for (let y = 0; y < cel.height; y++) {
+        let x = 0;
+        while (x < cel.width) {
+          let color = cel.pixelData[(y * cel.width) + x];
+          let x2 = x + 1;
+          while (x2 < cel.width && cel.pixelData[(y * cel.width) + x2] === color) {
+            x2++;
+          }
+          if (x2 === cel.width && color === cel.transparencyColor) {
+            break;
+          }
+          let count = x2 - x;
+          while (count > 15) {
+            buf[pos++] = (color << 4) | 0xf;
+            count -= 15;
+          }
+          buf[pos++] = (color << 4) | count;
+          x = x2;
+        }
+        pos++; // end-of-line code
+      }
+    }
+  }
+  if (view.description) {
+    buf[3] = pos & 0xff;
+    buf[4] = (pos >>> 8) & 0xff;
+    buf.set(view.description, pos);
+    pos += view.description.length + 1;
+  }
+  if (pos > buf.length) {
+    throw new Error('bad length!');
+  }
+  return buf.subarray(0, pos);
+}
