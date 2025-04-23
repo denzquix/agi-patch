@@ -888,3 +888,129 @@ function packView(view: AGIView): Uint8Array {
   }
   return buf.subarray(0, pos);
 }
+
+const byteArraysEqual = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v,i) => b[i] === v);
+
+export const agisEqual = (agi1: AGIProject, agi2: AGIProject): boolean => {
+  if (agi1.logic.length !== agi2.logic.length) return false;
+  for (let i = 0; i < agi1.logic.length; i++) {
+    const logic1 = agi1.logic[i], logic2 = agi2.logic[i];
+    if (!logic1 || logic1.type !== 'logic') {
+      if (logic2 && logic2.type === 'logic') return false;
+      continue;
+    }
+    if (!logic2 || logic2.type !== 'logic') {
+      return false;
+    }
+    if (!byteArraysEqual(logic1.bytecode, logic2.bytecode)) {
+      return false;
+    }
+    if (logic1.messages.length !== logic2.messages.length) {
+      return false;
+    }
+    for (let msg_i = 0; msg_i < logic1.messages.length; msg_i++) {
+      const msg1 = logic1.messages[msg_i], msg2 = logic2.messages[msg_i];
+      if (!msg1) {
+        if (msg2) return false;
+      }
+      else {
+        if (!msg2 || !byteArraysEqual(msg1, msg2)) return false;
+      }
+    }
+  }
+  if (agi1.objects.objects.length !== agi2.objects.objects.length) {
+    return false;
+  }
+  for (let obj_i = 0; obj_i < agi1.objects.objects.length; obj_i++) {
+    const obj1 = agi1.objects.objects[obj_i], obj2 = agi2.objects.objects[obj_i];
+    if (!byteArraysEqual(obj1.name, obj2.name) || ((obj1.startingRoom || 0) !== (obj2.startingRoom || 0))) {
+      return false;
+    }
+  }
+  if (agi1.pictures.length !== agi2.pictures.length) {
+    return false;
+  }
+  for (let pic_i = 0; pic_i < agi1.pictures.length; pic_i++) {
+    const pic1 = agi1.pictures[pic_i], pic2 = agi2.pictures[pic_i];
+    if (!pic1 || pic1.type !== 'raw-resource') {
+      if (pic2 && pic2.type === 'raw-resource') {
+        return false;
+      }
+    }
+    else {
+      if (!pic2 || pic2.type !== 'raw-resource') {
+        return false;
+      }
+      if (!byteArraysEqual(pic1.data, pic2.data)) {
+        return false;
+      }
+    }
+  }
+  if (agi1.sounds.length !== agi2.sounds.length) {
+    return false;
+  }
+  for (let snd_i = 0; snd_i < agi1.sounds.length; snd_i++) {
+    const snd1 = agi1.sounds[snd_i], snd2 = agi2.sounds[snd_i];
+    if (!snd1 || snd1.type !== 'raw-resource') {
+      if (snd2 && snd2.type === 'raw-resource') {
+        return false;
+      }
+    }
+    else {
+      if (!snd2 || snd2.type !== 'raw-resource') {
+        return false;
+      }
+      if (!byteArraysEqual(snd1.data, snd2.data)) {
+        return false;
+      }
+    }
+  }
+  if (agi1.views.length !== agi2.views.length) {
+    return false;
+  }
+  for (let view_i = 0; view_i < agi1.views.length; view_i++) {
+    const view1 = agi1.views[view_i], view2 = agi2.views[view_i];
+    if (!view1 || view1.type !== 'view') {
+      if (view2 && view2.type === 'view') {
+        return false;
+      }
+    }
+    else {
+      if (!view2 || view2.type !== 'view') {
+        return false;
+      }
+      if (view1.signature !== view2.signature) {
+        return false;
+      }
+      if (view1.description) {
+        if (!view2.description || !byteArraysEqual(view1.description, view2.description)) {
+          return false;
+        }
+      }
+      else if (view2.description) {
+        return false;
+      }
+      if (view1.loops.length !== view2.loops.length) {
+        return false;
+      }
+      for (let loop_i = 0; loop_i < view1.loops.length; loop_i++) {
+        const loop1 = view1.loops[loop_i], loop2 = view2.loops[loop_i];
+        if (loop1.cels.length !== loop2.cels.length) {
+          return false;
+        }
+        for (let cel_i = 0; cel_i < loop1.cels.length; cel_i++) {
+          const cel1 = loop1.cels[cel_i], cel2 = loop2.cels[cel_i];
+          if (cel1.width !== cel2.width || cel1.height !== cel2.height || cel1.transparencyColor !== cel2.transparencyColor || !byteArraysEqual(cel1.pixelData, cel2.pixelData)) {
+            return false;
+          }
+        }
+      }
+    }
+  }
+  const words1 = [...agi1.words.words].sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  const words2 = [...agi2.words.words].sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  if (JSON.stringify(words1) !== JSON.stringify(words2)) {
+    return false;
+  }
+  return true;
+};
