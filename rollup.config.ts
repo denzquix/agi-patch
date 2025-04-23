@@ -17,7 +17,7 @@ options.push({
     tsPlugin({
       compilerOptions: {
         strict: true,
-        target: "es6",
+        target: "es2023",
       },
     }),
     cjsPlugin({
