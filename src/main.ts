@@ -1,4 +1,6 @@
+import { AGIProject, eachAGIProject } from "./agi";
 import { FileMap, makeFileReceiver } from "./drag-drop";
+import { PatchJSON } from "./patch-format";
 import { VFSVolume, VFSDirectoryEntry, VFSDirectory, VFSFile } from "./virtual-file-system";
 import { readZip } from "./zip";
 
@@ -8,6 +10,8 @@ function getTabContext(el: Element) {
   }
   return null;
 }
+
+type VolumeHolder = {volume?: VFSVolume};
 
 window.addEventListener('DOMContentLoaded', function() {
   try {
@@ -29,7 +33,65 @@ window.addEventListener('DOMContentLoaded', function() {
       });
     });
 
+    document.querySelectorAll<HTMLElement>('[data-action=create-patch]').forEach(el => {
+      el.onclick = async () => {
+        const fromVolume = (document.querySelector('[data-volume=original-files]') as VolumeHolder)?.volume;
+        const toVolume = (document.querySelector('[data-volume=modified-files]') as VolumeHolder)?.volume;
+        
+        if (fromVolume && toVolume) {
+
+          async function getAllAGIs(rootVolume: VFSVolume) {
+            const allFromVolumes = await Promise.all(
+              [...rootVolume.root.eachFile('**/*.zip')]
+              .map(file => file.getContent().then(readZip))
+            );
+            allFromVolumes.unshift(rootVolume);
+            const agis: AGIProject[] = [];
+            for (const volume of allFromVolumes) {
+              for await (const agi of eachAGIProject(volume.root)) {
+                agis.push(agi);
+              }
+            }
+            return agis;
+          }
+
+          const srcAGIs = await getAllAGIs(fromVolume);
+          const dstAGIs = await getAllAGIs(toVolume);
+          if (srcAGIs.length !== 1 || dstAGIs.length !== 1) {
+            alert('Expected exactly 1 AGI project in Original and Modified\n\nFound ' + srcAGIs.length + ' in Original and ' + dstAGIs.length + ' in Modified');
+          }
+
+          const srcAGI = srcAGIs[0], dstAGI = dstAGIs[0];
+
+          const words1 = srcAGI.words;
+          const words2 = dstAGI.words;
+
+          const combinedWords = new Set([...words1.words.keys(), ...words2.words.keys()]);
+
+          const patchJSONObject: PatchJSON = {
+            formatVersion: 1,
+            type: 'agi',
+          };
+
+          const changes: {[word: string]: number | null} = {};
+
+          for (const word of combinedWords) {
+            const v1 = words1.words.get(word), v2 = words2.words.get(word);
+            if (v1 === v2) continue;
+            changes[word] = typeof v2 === 'undefined' ? null : v2;
+          }
+
+          if (Object.keys(changes).length !== 0) {
+            patchJSONObject.words = changes;
+          }
+
+          console.log(patchJSONObject);
+        }
+      };
+    });
+
     async function addVolumeToElement(volume: VFSVolume, targetVolumeContainer: HTMLElement) {
+      (targetVolumeContainer as VolumeHolder).volume = volume;
       const entryToElement = new Map<VFSDirectoryEntry, HTMLElement>();
       entryToElement.set(volume.root, targetVolumeContainer);
       async function createDir(dir: VFSDirectory) {
@@ -62,7 +124,7 @@ window.addEventListener('DOMContentLoaded', function() {
           fileTitle.textContent = file.name;
           fileContainer.appendChild(fileTitle);
           dirEl.appendChild(fileContainer);
-          if (/\.zip$/.test(file.name)) {
+          if (/\.zip$/i.test(file.name)) {
             const zipVolume = await readZip(await file.getContent());
             fileContainer.classList.add('archive');
             const archiveContents = document.createElement('div');
