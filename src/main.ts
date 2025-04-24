@@ -1,7 +1,6 @@
-import { AGIProject, eachAGIProject } from "./agi";
-import { diffBytes } from "./diff";
+import { AGIProject, agisEqual, eachAGIProject } from "./agi";
 import { FileMap, makeFileReceiver } from "./drag-drop";
-import { PatchJSON } from "./patch-format";
+import { applyAGIPatch, createAGIPatch } from "./patch-format";
 import { VFSVolume, VFSDirectoryEntry, VFSDirectory, VFSFile } from "./virtual-file-system";
 import { readZip } from "./zip";
 
@@ -13,8 +12,6 @@ function getTabContext(el: Element) {
 }
 
 type VolumeHolder = {volume?: VFSVolume};
-
-const byteArraysEqual = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v,i) => b[i] === v);
 
 window.addEventListener('DOMContentLoaded', function() {
   try {
@@ -66,116 +63,15 @@ window.addEventListener('DOMContentLoaded', function() {
 
           const srcAGI = srcAGIs[0], dstAGI = dstAGIs[0];
 
-          const patchJSONObject: PatchJSON = {
-            formatVersion: 1,
-            type: 'agi',
-          };
+          const { json: patchJSONObject, bytepool: bytepoolBlob } = createAGIPatch(srcAGI, dstAGI);
 
-          const chunks: Uint8Array[] = [];
-          let chunkPos = 0;
-          const writeChunk = (chunk: Uint8Array) => {
-            let startPos = chunkPos;
-            chunks.push(chunk);
-            chunkPos += chunk.length;
-            return startPos;
-          };
+          const bytepool = new Uint8Array(await bytepoolBlob.arrayBuffer());
 
-          const dataDiff = (chunk1: Uint8Array | null, chunk2: Uint8Array) => {
-            if (!chunk1) {
-              const start = writeChunk(chunk2);
-              return `@${start.toString(16)} +${chunk2.length}`;
-            }
-            const parts = diffBytes(chunk1, chunk2);
-            const diffStringParts: string[] = [];
-            let startPos = -1;
-            for (const part of parts) {
-              switch (part.type) {
-                case 'delete': diffStringParts.push('-' + part.count.toString(16)); break;
-                case 'insert':
-                  if (startPos === -1) startPos = writeChunk(part.bytes);
-                  diffStringParts.push('+' + part.bytes.length.toString(16));
-                  break;
-                case 'same': diffStringParts.push('=' + part.count.toString(16)); break;
-              }
-            }
-            return (startPos===-1?'':`@${startPos.toString(16)} `) + diffStringParts.join(' ');
-          };
+          console.log(bytepool);
 
-          const wordsDiff: {[word: string]: number | null} = {};
-
-          const words1 = srcAGI.words;
-          const words2 = dstAGI.words;
-
-          const combinedWords = new Set([...words1.words.keys(), ...words2.words.keys()]);
-
-          for (const word of combinedWords) {
-            const v1 = words1.words.get(word), v2 = words2.words.get(word);
-            if (v1 === v2) continue;
-            wordsDiff[word] = typeof v2 === 'undefined' ? null : v2;
-          }
-
-          if (Object.keys(wordsDiff).length !== 0) {
-            patchJSONObject.words = wordsDiff;
-          }
-
-          const logic_count = Math.max(srcAGI.logic.length, dstAGI.logic.length);
-          const logicDiff: PatchJSON['logic'] = {};
-          for (let logic_i = 0; logic_i < logic_count; logic_i++) {
-            const logic1 = srcAGI.logic[logic_i], logic2 = dstAGI.logic[logic_i];
-            if (!logic2) {
-              if (logic1 && logic1.type === 'logic') {
-                logicDiff[1] = null;
-              }
-              continue;
-            }
-            if (logic2.type !== 'logic') {
-              throw new Error('Target logic ' + logic_i + ' is invalid');
-            }
-            if (!logic1 || logic1.type !== 'logic') {
-              const bytecode = dataDiff(null, logic2.bytecode);
-              const messages: {[num: number]: string} = {};
-              for (let i = 0; i < logic2.messages.length; i++) {
-                const msgBytes = logic2.messages[i];
-                if (msgBytes) {
-                  messages[i] = dataDiff(null, msgBytes);
-                }
-              }
-              logicDiff[logic_i] = {bytecode, messages};
-              continue;
-            }
-            let bytecode: string | undefined = undefined;
-            if (!byteArraysEqual(logic1.bytecode, logic2.bytecode)) {
-              bytecode = dataDiff(logic1.bytecode, logic2.bytecode);
-            }
-            let messages: {[num: number]: string | null} = {};
-            for (let i = 0; i < Math.max(logic1.messages.length, logic2.messages.length); i++) {
-              const msg1 = logic1.messages[i], msg2 = logic2.messages[i];
-              if (!msg1) {
-                if (msg2) {
-                  messages[i] = dataDiff(null, msg2);
-                }
-              }
-              else if (!msg2) {
-                messages[i] = null;
-              }
-              else if (!byteArraysEqual(msg1, msg2)) {
-                messages[i] = dataDiff(msg1, msg2);
-              }
-            }
-            const bytecodePart = bytecode ? {bytecode} : null;
-            const messagePart = Object.keys(messages).length !== 0 ? {messages} : null;
-            if (bytecodePart || messagePart) {
-              logicDiff[logic_i] = {
-                ...bytecodePart,
-                ...messagePart,
-              };
-            }
-          }
-          if (Object.keys(logicDiff).length !== 0) {
-            patchJSONObject.logic = logicDiff;
-          }
-
-          console.log(patchJSONObject);
+          const patched = applyAGIPatch(srcAGI, patchJSONObject, bytepool);
+          console.log(patched);
+          console.log(agisEqual(patched, dstAGI));
         }
       };
     });
