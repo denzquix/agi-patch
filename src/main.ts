@@ -2,7 +2,7 @@ import { AGIProject, agisEqual, eachAGIProject } from "./agi";
 import { FileMap, makeFileReceiver } from "./drag-drop";
 import { applyAGIPatch, createAGIPatch } from "./patch-format";
 import { VFSVolume, VFSDirectoryEntry, VFSDirectory, VFSFile } from "./virtual-file-system";
-import { readZip } from "./zip";
+import { readZip, writeZipStream } from "./zip";
 
 function getTabContext(el: Element) {
   for (let ancestor = el.parentElement; ancestor; ancestor = ancestor.parentElement) {
@@ -72,6 +72,25 @@ window.addEventListener('DOMContentLoaded', function() {
           const patched = applyAGIPatch(srcAGI, patchJSONObject, bytepool);
           console.log(patched);
           console.log(agisEqual(patched, dstAGI));
+
+          const patchVolume = new VFSVolume();
+
+          patchVolume.root.createFile('patch.json', new Blob([JSON.stringify(patchJSONObject, null, 2)]));
+          patchVolume.root.createFile('bytepool.dat', bytepoolBlob);
+
+          const zipChunks: Uint8Array[] = [];
+          const ws = new WritableStream<Uint8Array>({
+            write(chunk) {
+              zipChunks.push(chunk);
+            },
+          });
+          await writeZipStream(patchVolume, ws);
+          const zipBlob = new Blob(zipChunks, {type:'application/zip'});
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(zipBlob);
+          link.download = 'patch.zip';
+          link.text = 'Download Patch';
+          el.parentElement!.insertAdjacentElement('afterend', link);
         }
       };
     });
