@@ -61,6 +61,7 @@ export async function crc32FromStream(stream: ReadableStream<Uint8Array>): Promi
 const blobCache = new WeakMap<Blob, Promise<number>>();
 
 export function crc32FromBlob(b: Blob): Promise<number> {
+  if (b.size === 0) return Promise.resolve(0);
   const cached = blobCache.get(b);
   if (cached) return cached;
   const awaitCrc = crc32FromStream(b.stream());
