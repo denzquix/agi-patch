@@ -52,7 +52,7 @@ export type VFSEvent = (
 
 export class VFSVolume {
   constructor(rootLastModified: Date | number | null = Date.now()) {
-    this.root = new VFSDirectory(this, null as any, '', rootLastModified);
+    this.root = new VFSDirectory(this, null, '', rootLastModified);
   }
   readonly root: VFSDirectory;
   static encodePathToString(parts: readonly string[]) {
@@ -108,8 +108,8 @@ export abstract class VFSDirectoryEntry {
 }
 
 export class VFSDirectory extends VFSDirectoryEntry implements Iterable<[string, VFSDirectoryEntry]> {
-  constructor(volume: VFSVolume, parentDirectory: VFSDirectory, name: string, lastModified: number | Date | undefined | null) {
-    super(volume, parentDirectory, name, lastModified == null ? undefined : Number(lastModified));
+  constructor(volume: VFSVolume, parentDirectory: VFSDirectory | null, name: string, lastModified: number | Date | undefined | null) {
+    super(volume, parentDirectory || 'root', name, lastModified == null ? undefined : Number(lastModified));
   }
   private _entries: VFSDirectoryEntry[] = [];
   *[Symbol.iterator](): Iterator<[string, VFSDirectoryEntry]> {
@@ -366,7 +366,7 @@ export class VFSFile extends VFSDirectoryEntry {
     if (areEncodingsEqual(contentEncoding, this.contentEncoding)) {
       return Promise.resolve(this.content);
     }
-    return new Response(this.stream()).blob();
+    return new Response(this.stream(contentEncoding)).blob();
   }
   replaceContent(newContent: Blob, contentEncoding: VFSEncodingDescriptor = null) {
     this.content = newContent;
