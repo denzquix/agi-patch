@@ -14,6 +14,12 @@ function getTabContext(el: Element) {
 type VolumeHolder = {volume?: VFSVolume};
 
 window.addEventListener('DOMContentLoaded', function() {
+  const messageBox = document.querySelector<HTMLDialogElement>('dialog.message-box')!;
+  const messageBoxText = messageBox.querySelector('p')!;
+  const showMessage = (message: string) => {
+    messageBoxText.textContent = message;
+    messageBox.showModal();
+  };
   try {
 
     document.querySelectorAll<HTMLElement>('[data-tab-context]').forEach(tabContext => {
@@ -65,13 +71,6 @@ window.addEventListener('DOMContentLoaded', function() {
 
           const { json: patchJSONObject, bytepool: bytepoolBlob } = createAGIPatch(srcAGI, dstAGI);
 
-          const bytepool = new Uint8Array(await bytepoolBlob.arrayBuffer());
-
-          console.log(bytepool);
-
-          const patched = applyAGIPatch(srcAGI, patchJSONObject, bytepool);
-          console.log(patched);
-          console.log(agisEqual(patched, dstAGI));
 
           const patchVolume = new VFSVolume();
 
@@ -88,9 +87,11 @@ window.addEventListener('DOMContentLoaded', function() {
           const zipBlob = new Blob(zipChunks, {type:'application/zip'});
           const link = document.createElement('a');
           link.href = URL.createObjectURL(zipBlob);
-          link.download = 'patch.zip';
-          link.text = 'Download Patch';
+          link.download = 'patch.sapp';
+          link.text = 'Download SAPP Patch File';
           el.parentElement!.insertAdjacentElement('afterend', link);
+
+          showMessage('Patch created successfully');
         }
       };
     });
