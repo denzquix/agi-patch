@@ -1,11 +1,12 @@
-import { AGIProject } from "./agi";
+import { agiHash, AGIProject } from "./agi";
 import { diffBytes } from "./diff";
 
 export type BytePatch = string;
 
-export interface PatchJSON {
-  formatVersion: number;
+export interface PatchObject {
   type: 'agi';
+  hashOriginal: string;
+  hashPatched: string;
   words?: {
     [word: string]: number | null;
   };
@@ -17,6 +18,11 @@ export interface PatchJSON {
       };
     };
   };
+}
+
+export interface PatchContainer {
+  formatVersion: number;
+  patches: PatchObject[];
 }
 
 const byteArraysEqual = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v,i) => b[i] === v);
@@ -59,11 +65,17 @@ function applyDiff(a: Uint8Array, bytepool: Uint8Array, diff: string) {
   return new Uint8Array(output);
 }
 
-export function createAGIPatch(srcAGI: AGIProject, dstAGI: AGIProject): {json:PatchJSON, bytepool:Blob} {
-  const patchJSONObject: PatchJSON = {
-    formatVersion: 1,
+export function createAGIPatch(srcAGI: AGIProject, dstAGI: AGIProject): {json:PatchContainer, bytepool:Blob} {
+  const patchObject: PatchObject = {
     type: 'agi',
+    hashOriginal: agiHash(srcAGI).toString(16).padStart(8, '0'),
+    hashPatched: agiHash(dstAGI).toString(16).padStart(8, '0'),
   };
+  const patchContainer: PatchContainer = {
+    formatVersion: 1,
+    patches: [patchObject],
+  };
+
 
   const chunks: Uint8Array[] = [];
   let chunkPos = 0;
@@ -110,11 +122,11 @@ export function createAGIPatch(srcAGI: AGIProject, dstAGI: AGIProject): {json:Pa
   }
 
   if (Object.keys(wordsDiff).length !== 0) {
-    patchJSONObject.words = wordsDiff;
+    patchObject.words = wordsDiff;
   }
 
   const logic_count = Math.max(srcAGI.logic.length, dstAGI.logic.length);
-  const logicDiff: PatchJSON['logic'] = {};
+  const logicDiff: PatchObject['logic'] = {};
   for (let logic_i = 0; logic_i < logic_count; logic_i++) {
     const logic1 = srcAGI.logic[logic_i], logic2 = dstAGI.logic[logic_i];
     if (!logic2) {
@@ -167,17 +179,16 @@ export function createAGIPatch(srcAGI: AGIProject, dstAGI: AGIProject): {json:Pa
     }
   }
   if (Object.keys(logicDiff).length !== 0) {
-    patchJSONObject.logic = logicDiff;
+    patchObject.logic = logicDiff;
   }
 
-  console.log(patchJSONObject);
   return {
-    json: patchJSONObject,
+    json: patchContainer,
     bytepool: new Blob(chunks),
   }
 }
 
-export function applyAGIPatch(srcAGI: AGIProject, patch: PatchJSON, bytepool: Uint8Array) {
+export function applyAGIPatch(srcAGI: AGIProject, patchContainer: PatchContainer, bytepool: Uint8Array) {
   const logic = [...srcAGI.logic];
   const objects = {...srcAGI.objects};
   const packedDirs = srcAGI.packedDirs;
@@ -186,59 +197,76 @@ export function applyAGIPatch(srcAGI: AGIProject, patch: PatchJSON, bytepool: Ui
   const views = [...srcAGI.views];
   const words = {words: new Map(srcAGI.words.words), suffix:srcAGI.words.suffix};
 
-  if (patch.logic) {
-    for (const [logic_i_str, logicEntry] of Object.entries(patch.logic)) {
-      const logic_i = Number(logic_i_str);
-      if (logic_i >= logic.length) logic.length = logic_i + 1;
-      if (logicEntry === null) {
-        logic[logic_i] = null;
-        continue;
-      }
-      const existingLogic = logic[logic_i] && logic[logic_i].type === 'logic' ? logic[logic_i] : null;
-      const existingBytecode = existingLogic ? existingLogic.bytecode : new Uint8Array(0);
-      const bytecode = logicEntry.bytecode ? applyDiff(existingBytecode, bytepool, logicEntry.bytecode) : existingBytecode;
-      const messages = existingLogic ? [...existingLogic.messages] : [];
-      for (const [msg_i_str, msgDiff] of Object.entries(logicEntry.messages || {})) {
-        const msg_i = Number(msg_i_str);
-        if (msg_i >= messages.length) {
-          messages.length = msg_i + 1;
+  const hash = agiHash(srcAGI);
+
+  for (const patch of patchContainer.patches) {
+    const originalHash = parseInt(patch.hashOriginal, 16);
+    if (originalHash !== hash) {
+      continue;
+    }
+
+    if (patch.logic) {
+      for (const [logic_i_str, logicEntry] of Object.entries(patch.logic)) {
+        const logic_i = Number(logic_i_str);
+        if (logic_i >= logic.length) logic.length = logic_i + 1;
+        if (logicEntry === null) {
+          logic[logic_i] = null;
+          continue;
         }
-        if (msgDiff === null) {
-          messages[msg_i] = null;
+        const existingLogic = logic[logic_i] && logic[logic_i].type === 'logic' ? logic[logic_i] : null;
+        const existingBytecode = existingLogic ? existingLogic.bytecode : new Uint8Array(0);
+        const bytecode = logicEntry.bytecode ? applyDiff(existingBytecode, bytepool, logicEntry.bytecode) : existingBytecode;
+        const messages = existingLogic ? [...existingLogic.messages] : [];
+        for (const [msg_i_str, msgDiff] of Object.entries(logicEntry.messages || {})) {
+          const msg_i = Number(msg_i_str);
+          if (msg_i >= messages.length) {
+            messages.length = msg_i + 1;
+          }
+          if (msgDiff === null) {
+            messages[msg_i] = null;
+          }
+          else {
+            const existingMsg = messages[msg_i] || new Uint8Array(0);
+            messages[msg_i] = applyDiff(existingMsg, bytepool, msgDiff);
+          }
+        }
+        logic[logic_i] = {
+          type: 'logic',
+          bytecode,
+          messages,
+        };
+      }
+    }
+  
+    if (patch.words) {
+      for (const [word, id] of Object.entries(patch.words)) {
+        if (id == null) {
+          words.words.delete(word);
         }
         else {
-          const existingMsg = messages[msg_i] || new Uint8Array(0);
-          messages[msg_i] = applyDiff(existingMsg, bytepool, msgDiff);
+          words.words.set(word, id);
         }
       }
-      logic[logic_i] = {
-        type: 'logic',
-        bytecode,
-        messages,
-      };
     }
-  }
+  
+    const newAGI: AGIProject = {
+      logic,
+      objects,
+      packedDirs,
+      pictures,
+      sounds,
+      views,
+      words,
+    };
 
-  if (patch.words) {
-    for (const [word, id] of Object.entries(patch.words)) {
-      if (id == null) {
-        words.words.delete(word);
-      }
-      else {
-        words.words.set(word, id);
-      }
+    const finalHash = agiHash(newAGI);
+    if (finalHash !== parseInt(patch.hashPatched, 16)) {
+      throw new Error('hash check failed');
     }
+  
+    return newAGI;
+  
   }
+  throw new Error('no matching patch found');
 
-  const newAGI: AGIProject = {
-    logic,
-    objects,
-    packedDirs,
-    pictures,
-    sounds,
-    views,
-    words,
-  };
-
-  return newAGI;
 }

@@ -1,3 +1,4 @@
+import { MurmurHash3 } from "./murmur";
 import { VFSDirectory, VFSFile } from "./virtual-file-system";
 
 export interface AGIWordsFile {
@@ -1013,4 +1014,76 @@ export const agisEqual = (agi1: AGIProject, agi2: AGIProject): boolean => {
     return false;
   }
   return true;
+};
+
+export const agiHash = (agi: AGIProject): number => {
+  const h = new MurmurHash3();
+  const vBytes = new Uint8Array(4);
+  const v = new DataView(vBytes.buffer);
+
+  const i32 = (num: number) => { v.setInt32(0, num, true); h.add(vBytes); };
+
+  for (const [i, logic] of agi.logic.entries()) {
+    if (!logic || logic.type !== 'logic') continue;
+    i32(i);
+    i32(logic.bytecode.length);
+    h.add(logic.bytecode);
+    for (const [j, message] of logic.messages.entries()) {
+      if (message) {
+        i32(j);
+        i32(message.length);
+        h.add(message);   
+      }
+    }
+    i32(-1);
+  }
+  i32(-1);
+
+  for (const [i, obj] of agi.objects.objects.entries()) {
+    i32(i);
+    i32(obj.startingRoom || 0);
+    i32(obj.name.length);
+    h.add(obj.name);
+  }
+  i32(-1);
+
+  for (const [i, pic] of agi.pictures.entries()) {
+    if (!pic || pic.type !== 'raw-resource') continue;
+    i32(i);
+    h.add(pic.data);
+  }
+  i32(-1);
+
+  for (const [i, snd] of agi.sounds.entries()) {
+    if (!snd || snd.type !== 'raw-resource') continue;
+    i32(i);
+    h.add(snd.data);
+  }
+  i32(-1);
+
+  for (const [i, view] of agi.views.entries()) {
+    if (!view || view.type !== 'view') continue;
+    i32(i);
+    i32(view.signature);
+    i32(view.loops.length);
+    for (const loop of view.loops) {
+      i32(loop.cels.length);
+      for (const cel of loop.cels) {
+        i32(cel.width);
+        i32(cel.height);
+        i32(cel.transparencyColor);
+        h.add(cel.pixelData);
+      }
+    }
+  }
+  i32(-1);
+
+  for (const [word, num] of [...agi.words.words].sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)) {
+    i32(num);
+    i32(word.length);
+    h.add(new Uint8Array([...word].map(v => v.charCodeAt(0))));
+  }
+  i32(-1);
+
+  return h.digest();
 };
