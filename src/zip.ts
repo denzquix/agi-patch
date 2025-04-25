@@ -1,3 +1,4 @@
+import { crc32FromBlob } from "./crc32";
 import { VFSEncodingDescriptor, VFSVolume } from "./virtual-file-system";
 
 const EOCD_LENGTH = 22;
@@ -250,6 +251,28 @@ function zDecompress(b: Blob) {
   return new Response(b.stream().pipeThrough(zs)).blob();
 }
 
+function encodeExtra(extra: ZipExtra[]) {
+  const extraBytes = new Uint8Array(extra.reduce((total, v) => total + 2 + v.data.length, 0));
+  let pos = 0;
+  for (let i = 0; i < extra.length; i++) {
+    extraBytes[pos++] = extra[i].type & 0xff;
+    extraBytes[pos++] = (extra[i].type >> 8) & 0xff;
+    extraBytes.set(extra[i].data, pos);
+    pos += extra[i].data.length;
+  }
+  return extraBytes;
+}
+
+const EMPTY_BLOB = new Blob([]);
+
+function toDOSTime(timestamp: number | undefined | null) {
+  if (timestamp == null) return {date:0, time:0};
+  const d = new Date(timestamp);
+  const date = ( d.getDate() | ((d.getMonth()+1) << 5) | ((d.getFullYear() - 1980) << 9) ) & 0xffff;
+  const time = (d.getMilliseconds() >= 500 ? 1 : 0) | ( d.getSeconds() << 1 ) | (d.getMinutes() << 5) | (d.getHours() << 11);
+  return { date, time };
+}
+
 export async function writeZipStream(zip: VFSVolume, ws: WritableStream<Uint8Array>) {
   const writer = ws.getWriter();
   try {
@@ -257,23 +280,48 @@ export async function writeZipStream(zip: VFSVolume, ws: WritableStream<Uint8Arr
     const centralDirRecords: Uint8Array[] = [];
     for (const entry of zip.root.eachEntry('**')) {
       const localRecordOffset = writtenBytes;
-      if (entry.isDirectory()) {
-        const path = entry.getPath().join('/') + '/';
-        const localFileHeader = new DataView(new ArrayBuffer(30));
-        localFileHeader.setUint32(0, 0x504b0304, false);
-        localFileHeader.setUint16(4, 10, true);
-        localFileHeader.setUint16(6, 0, true);
-        localFileHeader.setUint16(8, 0, true);
-        localFileHeader.setUint32(14, 0, true); // CRC32 of no data
-        localFileHeader.setUint32(18, 0, true); // compressed length
-        localFileHeader.setUint32(22, 0, true); // uncompressed length
-        await writer.ready;
-        writer.write(new Uint8Array(localFileHeader.buffer));
-
+      const path = entry.getPath().join('/') + (entry.isDirectory() ? '/' : '');
+      const extra: ZipExtra[] = [];
+      const extraBytes = encodeExtra(extra);
+      const comment = '';
+      let requiredVersion = 10;
+      const creatorVersion = 63; // DOS, deflate, UTF-8
+      let flags = 0;
+      let internalAttributes = 0;
+      let externalAttributes = entry.isDirectory() ? (1 << 16) : 0;
+      const full = entry.isFile() ? await entry.getContent() : EMPTY_BLOB;
+      let compress = (full.size > 5) && !/\.(?:zip|gz|tgz|7z|rar|jpg|jpeg|png|gif|mp4|avi|m4a|mp3|ogg|webp|aac|oga|flac|mkv|webm|mov|wmv|xz|jar|apk|woff|woff2)$/i.test(entry.name);
+      if (compress) {
+        requiredVersion = 20;
       }
-      else if (entry.isFile()) {
-        let compress = !/\.(?:zip|gz|tgz|7z|rar|jpg|jpeg|png|gif|mp4|avi|m4a|mp3|ogg|webp|aac|oga|flac|mkv|webm|mov|wmv|xz|jar|apk|woff|woff2)$/i.test(entry.name) && !entry.isArchive();
-        const stored = await entry.getContent(compress ? {encoding:'deflate-raw'} : null);
+      const pathIsAscii7Clean = !/[^0x00-0x7f]/.test(path);
+      if (!pathIsAscii7Clean) {
+        requiredVersion = 63;
+        flags |= (1 << 11);
+      }
+      const pathBytes = utf8Encoder.encode(path), commentBytes = utf8Encoder.encode(comment);
+      const localHeaderBytes = new Uint8Array(30 + pathBytes.length + extraBytes.length);
+      const localHeaderDV = new DataView(localHeaderBytes.buffer);
+      const stored = !compress || !entry.isFile() ? full : await entry.getContent({encoding:'deflate-raw'});
+      const crc32 = await crc32FromBlob(full);
+      const { date, time } = toDOSTime(entry.lastModified);
+      localHeaderDV.setUint32(0, 0x504b0304, false);
+      localHeaderDV.setUint16(4, requiredVersion, true);
+      localHeaderDV.setUint16(6, flags, true);
+      localHeaderDV.setUint16(8, compress ? 8 : 0, true);
+      localHeaderDV.setUint16(10, time, true);
+      localHeaderDV.setUint16(12, date, true);
+      localHeaderDV.setUint32(14, crc32, true);
+      localHeaderDV.setUint32(18, stored.size, true);
+      localHeaderDV.setUint32(22, full.size, true);
+      localHeaderDV.setUint16(26, pathBytes.length, true);
+      localHeaderDV.setUint16(28, extraBytes.length, true);
+      localHeaderBytes.set(pathBytes, 30);
+      localHeaderBytes.set(extraBytes, 30 + pathBytes.length);
+      await writer.ready;
+      await writer.write(localHeaderBytes);
+      writtenBytes += localHeaderBytes.length;
+      if (stored.size > 0) {
         const rs = stored.stream();
         const reader = rs.getReader();
         try {
@@ -289,15 +337,45 @@ export async function writeZipStream(zip: VFSVolume, ws: WritableStream<Uint8Arr
         }
         writtenBytes += stored.size;
       }
+      const centralHeaderBytes = new Uint8Array(46 + pathBytes.length + extraBytes.length + commentBytes.length);
+      const centralHeaderDV = new DataView(centralHeaderBytes.buffer);
+      centralHeaderDV.setUint32(0, 0x504b0102, false);
+      centralHeaderDV.setUint16(4, creatorVersion, true);
+      centralHeaderDV.setUint16(6, requiredVersion, true);
+      centralHeaderDV.setUint16(8, flags, true);
+      centralHeaderDV.setUint16(10, compress ? 8 : 0, true);
+      centralHeaderDV.setUint16(12, time, true);
+      centralHeaderDV.setUint16(14, date, true);
+      centralHeaderDV.setUint32(16, crc32, true);
+      centralHeaderDV.setUint32(20, stored.size, true);
+      centralHeaderDV.setUint32(24, full.size, true);
+      centralHeaderDV.setUint16(28, pathBytes.length, true);
+      centralHeaderDV.setUint16(30, extraBytes.length, true);
+      centralHeaderDV.setUint16(32, commentBytes.length, true);
+      centralHeaderDV.setUint16(36, internalAttributes, true);
+      centralHeaderDV.setUint32(38, externalAttributes, true);
+      centralHeaderDV.setUint32(42, localRecordOffset, true);
+      centralHeaderBytes.set(pathBytes, 46);
+      centralHeaderBytes.set(extraBytes, 46 + pathBytes.length);
+      centralHeaderBytes.set(commentBytes, 46 + pathBytes.length + extraBytes.length);
+      centralDirRecords.push(centralHeaderBytes);
     }
-    const centralDirOFfset = writtenBytes;
+    const centralDirOffset = writtenBytes;
     for (const record of centralDirRecords) {
       await writer.ready;
       await writer.write(record);
       writtenBytes += record.byteLength;
     }
-    const centralDirLength = writtenBytes - centralDirOFfset;
+    const centralDirLength = writtenBytes - centralDirOffset;
     const eocd = new DataView(new ArrayBuffer(22));
+    eocd.setUint32(0, 0x504b0506, false);
+    eocd.setUint16(4, 0, true); // number of this disk
+    eocd.setUint16(6, 0, true); // disk where central directory starts
+    eocd.setUint16(8, centralDirRecords.length, true);
+    eocd.setUint16(10, centralDirRecords.length, true);
+    eocd.setUint32(12, centralDirLength, true);
+    eocd.setUint32(16, centralDirOffset, true);
+    eocd.setUint16(20, 0, true); // comment length
     await writer.ready;
     await writer.write(new Uint8Array(eocd.buffer));
   }
