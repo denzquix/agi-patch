@@ -60,18 +60,6 @@ function applyDiff(a: Uint8Array, bytepool: Uint8Array, diff: string) {
           throw new Error('read past end of input');
         }
         break;
-      case '<':
-        output.push(a[aOffset++] - num);
-        if (aOffset > a.length) {
-          throw new Error('read past end of input');
-        }
-        break;
-      case '>':
-        output.push(a[aOffset++] + num);
-        if (aOffset > a.length) {
-          throw new Error('read past end of input');
-        }
-        break;
     }
   }
   return new Uint8Array(output);
@@ -126,44 +114,13 @@ export function createAGIPatch(srcAGI: AGIProject, dstAGI: AGIProject): {json:Pa
           chunk2_pos += part.count;
           break;
         case 'replace':
-          if (part.bytes.length === 1) {
-            const fromByte = chunk1[chunk1_pos++];
-            const toByte = chunk2[chunk2_pos++];
-            if (fromByte > toByte) {
-              diffStringParts.push('<' + (fromByte - toByte).toString(16));
-            }
-            else {
-              diffStringParts.push('>' + (toByte - fromByte).toString(16));
-            }
-            break;
-          }
-          let part_j = part_i;
-          let xorCount = part.bytes.length;
-          const xorChunk = new Uint8Array(xorCount);
-          for (let i = 0; i < xorCount; i++) {
+          diffStringParts.push('~' + part.bytes.length.toString(16));
+          const xorChunk = new Uint8Array(part.bytes.length);
+          for (let i = 0; i < xorChunk.length; i++) {
             xorChunk[i] = chunk1[chunk1_pos++] ^ chunk2[chunk2_pos++];
           }
-          const nextPos = writeChunk(xorChunk);
-          if (startPos === -1) startPos = nextPos;
-          while ((part_j+2) < parts.length) {
-            const nextPart = parts[part_j+1];
-            if (nextPart.type !== 'same' || nextPart.count > 16) break;
-            writeChunk(new Uint8Array(nextPart.count));
-            chunk1_pos += nextPart.count;
-            chunk2_pos += nextPart.count;
-            xorCount += nextPart.count;
-            const nextNextPart = parts[part_j+2];
-            if (nextNextPart.type !== 'replace') break;
-            const xorChunk = new Uint8Array(part.bytes.length);
-            for (let i = 0; i < xorChunk.length; i++) {
-              xorChunk[i] = chunk1[chunk1_pos++] ^ chunk2[chunk2_pos++];
-            }  
-            writeChunk(xorChunk);
-            xorCount += xorChunk.length;
-            part_j += 2;
-          }
-          diffStringParts.push('~' + xorCount.toString(16));
-          part_i = part_j;
+          if (startPos === -1) startPos = writeChunk(xorChunk);
+          else writeChunk(xorChunk);
           break;
         }
     }
