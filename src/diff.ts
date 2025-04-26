@@ -3,6 +3,7 @@ export type DiffOp = (
   | { type: 'delete', count: number }
   | { type: 'same', count: number }
   | { type: 'insert', bytes: Uint8Array }
+  | { type: 'replace', bytes: Uint8Array }
 );
 
 export function diffBytes(a: Uint8Array, b: Uint8Array): DiffOp[] {
@@ -144,7 +145,60 @@ export function diffBytes(a: Uint8Array, b: Uint8Array): DiffOp[] {
     x = prevX;
     y = prevY;
   }
-  return edits.reverse();
+  edits.reverse();
+  for (let edit_i = 0; edit_i+1 < edits.length; edit_i++) {
+    const edit = edits[edit_i];
+    let insertCount, deleteCount;
+    if (edit.type === 'delete') {
+      deleteCount = edit.count;
+      insertCount = 0;
+    }
+    else if (edit.type === 'insert') {
+      insertCount = edit.bytes.length;
+      deleteCount = 0;
+    }
+    else {
+      continue;
+    }
+    let edit_j = edit_i + 1;
+    while (edit_j < edits.length) {
+      const edit2 = edits[edit_j];
+      if (edit2.type === 'insert') {
+        insertCount += edit2.bytes.length;
+      }
+      else if (edit2.type === 'delete') {
+        deleteCount += edit2.count;
+      }
+      else {
+        break;
+      }
+      edit_j++;
+    }
+    const replaceCount = Math.min(insertCount, deleteCount);
+    if (replaceCount > 0) {
+      const concat = new Uint8Array(edits.slice(edit_i, edit_j).reduce((total, v) => total + (v.type === 'insert' ? v.bytes.length : 0), 0));
+      let pos = 0;
+      for (let edit_k = edit_i; edit_k < edit_j; edit_k++) {
+        const edit3 = edits[edit_k];
+        if (edit3.type === 'insert') {
+          concat.set(edit3.bytes, pos);
+          pos += edit3.bytes.length;
+        }
+      }
+      const replace: DiffOp[] = [{type:'replace', bytes:concat.subarray(0, replaceCount)}];
+      insertCount -= replaceCount;
+      deleteCount -= replaceCount;
+      if (insertCount > 0) {
+        replace.push({type:'insert', bytes:concat.subarray(replaceCount)});
+      }
+      if (deleteCount > 0) {
+        replace.push({type:'delete', count:deleteCount});
+      }
+      edits.splice(edit_i, edit_j - edit_i, ...replace);
+      edit_i += replace.length - 1;
+    }
+  }
+  return edits;
 }
 
 export function applyDiff(input: Uint8Array, ops: DiffOp[]) {
