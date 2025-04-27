@@ -1,27 +1,53 @@
-import { VFSDirectory } from "./virtual-file-system";
+
+declare global {
+  interface HTMLElementEventMap {
+    'file-drop': CustomEvent<{file:File}>;
+    'files-drop': CustomEvent<{files:FileMap}>;
+  }
+}
 
 export function makeFileReceiver({
   dropTarget,
-  button,
-  filter,
-  targetDirectory,
 }: {
   dropTarget: HTMLElement,
-  button?: HTMLElement | null,
-  filter?: string,
-  targetDirectory: VFSDirectory,
 }) {
 
-  function processEntry(name: string, fileOrMap: File | FileMap, dir: VFSDirectory) {
-    if (fileOrMap instanceof File) {
-      dir.createFile(name, fileOrMap, fileOrMap.lastModified);
-    }
-    else {
-      const subdir = dir.createDirectory(name, null);
-      for (const [name, subentry] of fileOrMap) {
-        processEntry(name, subentry, subdir);
+  let singleFileTarget = dropTarget.querySelector<HTMLInputElement>('input[type=file]:not([multiple], [webkitdirectory])');
+  let multiFileTarget = dropTarget.querySelector<HTMLInputElement>('input[type=file][multiple]');
+  let dirTarget = dropTarget.querySelector<HTMLInputElement>('input[type=file][webkitdirectory]');
+
+  if (singleFileTarget) {
+    singleFileTarget.addEventListener('change', e => {
+      const f = singleFileTarget.files && singleFileTarget.files[0];
+      if (f) {
+        dropTarget.dispatchEvent(new CustomEvent('file-drop', {detail:{file:f}}));
       }
-    }
+    });
+    dropTarget.querySelectorAll<HTMLElement>('[data-action=choose-file]').forEach(el => {
+      el.addEventListener('click', () => singleFileTarget.click());
+    });
+  }
+  if (multiFileTarget) {
+    multiFileTarget.addEventListener('change', e => {
+      if (multiFileTarget.files) {
+        processFileList(multiFileTarget.files).then(value => {
+          dropTarget.dispatchEvent(new CustomEvent('files-drop', {detail:{files:value}}));
+        });
+      }
+    });
+    dropTarget.querySelectorAll<HTMLElement>('[data-action=choose-files]').forEach(el => {
+      el.addEventListener('click', () => multiFileTarget.click());
+    });
+  }
+  if (dirTarget) {
+    dirTarget.addEventListener('change', e => {
+      if (dirTarget.files && dirTarget.files.length > 0) {
+        dropTarget.dispatchEvent(new CustomEvent('files-drop', {detail:{files:processFlattenedFileList(dirTarget.files)}}));
+      }
+    });
+    dropTarget.querySelectorAll<HTMLElement>('[data-action=choose-folder]').forEach(el => {
+      el.addEventListener('click', () => dirTarget.click());
+    });
   }
 
   let dragCounter = 0;
@@ -60,37 +86,41 @@ export function makeFileReceiver({
     }
     if (result != null) {
       result.then(value => {
-        for (const [name, entry] of value) {
-          processEntry(name, entry, targetDirectory);
-        }
+        dropTarget.dispatchEvent(new CustomEvent('files-drop', {detail:{files:value}}));
       });
     }
   });
 
-  if (button) {
-    button.addEventListener('click', function(ev) {
-      const fileInput = document.createElement('input');
-      fileInput.type = 'file';
-      fileInput.multiple = true;
-      if (filter) {
-        fileInput.accept = filter;
-      }
-      fileInput.addEventListener('change', function(ev) {
-        if (fileInput.files) {
-          processFileList(fileInput.files).then(value => {
-            for (const [name, entry] of value) {
-              processEntry(name, entry, targetDirectory);
-            }
-          });
-        }
-      });
-      fileInput.click();
-    });
-  }
-
 }
 
 export type FileMap = Map<string, File | FileMap>;
+
+function processFlattenedFileList(files: FileList): FileMap {
+  const fileMap: FileMap = new Map();
+  for (let file_i = 0; file_i < files.length; file_i++) {
+    const file = files[file_i];
+    const fullPath = file.webkitRelativePath || file.name;
+    const pathParts = fullPath.split(/\//g).slice(0, -1);
+    let dir = fileMap;
+    for (const pathPart of pathParts) {
+      let subdir = fileMap.get(pathPart);
+      if (subdir instanceof File) {
+        throw new Error('file/folder mismatch');
+      }
+      if (!subdir) {
+        subdir = new Map();
+        dir.set(pathPart, subdir);
+      }
+      dir = subdir;
+    }
+    const existing = dir.get(file.name);
+    if (existing) {
+      throw new Error('duplicate entry: ' + fullPath);
+    }
+    dir.set(file.name, file);
+  }
+  return fileMap;
+}
 
 async function processFileList(items: FileList | DataTransferItemList): Promise<FileMap> {
   const result: FileMap = new Map();

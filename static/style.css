@@ -5,6 +5,7 @@
   --hover-color: #e6f2ff;
   --active-color: #337ab7;
   --text-color: #333;
+  --filename-font: 'Cascadia Mono', 'Segoe UI Mono', 'Fira Code', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
   font-family: Arial, sans-serif;
 }
 
@@ -156,10 +157,9 @@ body {
   text-align: center;
   background-color: #fafafa;
   transition: border-color 0.3s, background-color 0.3s;
-  cursor: pointer;
 }
 
-.dropzone:hover, .dropzone.drop-hovering {
+.dropzone.drop-hovering {
   border-color: var(--primary-color);
   background-color: var(--hover-color);
 }
@@ -215,7 +215,7 @@ button, .file-browser-btn:hover {
   transition: background-color 0.2s;
   border-radius: 3px;
   box-shadow: -2px -3px 6px inset var(--border-color);
-  font-family: 'Cascadia Mono', 'Segoe UI Mono', 'Fira Code', 'Menlo', 'Consolas', 'Liberation Mono', 'Courier New';
+  font-family: var(--filename-font);
   font-size: small;
 }
 
@@ -235,7 +235,7 @@ button, .file-browser-btn:hover {
 /* Tree view styling */
 .tree-view {
   margin-top: 15px;
-  font-family: 'Cascadia Mono', 'Segoe UI Mono', 'Fira Code', 'Menlo', 'Consolas', 'Liberation Mono', 'Courier New';
+  font-family: var(--filename-font);
   font-size: small;
 }
 
@@ -287,4 +287,18 @@ button, .file-browser-btn:hover {
 
 .side-by-side > div {
   flex: 1;
+}
+
+.patch-section:not(.patch-selected) .selected-patch, .patch-section.patch-selected .patch-selection {
+  display: none;
+}
+
+.patch-filename {
+  font-family: var(--filename-font);
+  font-weight: bold;
+}
+
+.loading {
+  opacity: 0.5;
+  cursor: wait;
 }

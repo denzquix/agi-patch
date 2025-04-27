@@ -1,6 +1,6 @@
-import { AGIProject, agisEqual, eachAGIProject } from "./agi";
+import { AGIProject, eachAGIProject } from "./agi";
 import { FileMap, makeFileReceiver } from "./drag-drop";
-import { applyAGIPatch, createAGIPatch } from "./patch-format";
+import { createAGIPatch } from "./patch-format";
 import { VFSVolume, VFSDirectoryEntry, VFSDirectory, VFSFile } from "./virtual-file-system";
 import { readZip, writeZipStream } from "./zip";
 
@@ -13,6 +13,12 @@ function getTabContext(el: Element) {
 
 type VolumeHolder = {volume?: VFSVolume};
 
+declare global {
+  interface WindowEventMap {
+    'patch-file': CustomEvent<{file: File | null}>;
+  }
+}
+
 window.addEventListener('DOMContentLoaded', function() {
   const messageBox = document.querySelector<HTMLDialogElement>('dialog.message-box')!;
   const messageBoxText = messageBox.querySelector('p')!;
@@ -21,6 +27,53 @@ window.addEventListener('DOMContentLoaded', function() {
     messageBox.showModal();
   };
   try {
+
+    let patchFile: File | null = null;
+    const setPatchFile = (pf: File | null) => {
+      window.dispatchEvent(new CustomEvent('patch-file', {detail:{file:pf}}));
+      patchFile = pf;
+    };
+
+    document.querySelectorAll<HTMLElement>('.patch-section').forEach(patchSection => {
+      patchSection.querySelectorAll<HTMLElement>('.select-list').forEach(patchList => {
+        patchList.addEventListener('click', async (e) => {
+          if (patchList.classList.contains('loading')) return;
+          const targetElement = e.target as HTMLElement;
+          const url = targetElement.dataset.url;
+          if (url) {
+            const absoluteUrl = new URL(url, document.baseURI);
+            patchList.classList.add('loading');
+            try {
+              const response = await fetch(url);
+              if (!response.ok) throw new Error('Failed to load '+absoluteUrl.toString());
+              const blob = await response.blob();
+              const file = new File([blob], absoluteUrl.pathname.match(/[^\/]*$/)![0] || 'unknown.dat');
+              setPatchFile(file);
+            }
+            finally {
+              patchList.classList.remove('loading');
+            }
+          }
+        });
+      });
+      patchSection.classList.toggle('patch-selected', patchFile != null);
+      patchSection.querySelectorAll<HTMLElement>('.dropzone[data-file-is=patch-file]').forEach(el => {
+        el.addEventListener('file-drop', ({detail:{file}}) => {
+          setPatchFile(file);
+        });
+      });
+      window.addEventListener('patch-file', ({detail:{file}}) => {
+        patchSection.classList.toggle('patch-selected', file != null);
+        if (file) patchSection.querySelectorAll<HTMLElement>('.patch-filename').forEach(filenameHolder => {
+          filenameHolder.textContent = file.name;
+        });
+      });
+      patchSection.querySelectorAll<HTMLElement>('[data-action=cancel-selected-patch]').forEach(btn => {
+        btn.onclick = () => {
+          setPatchFile(null);
+        };
+      });
+    });
 
     document.querySelectorAll<HTMLElement>('[data-tab-context]').forEach(tabContext => {
       tabContext.addEventListener('click', e => {
@@ -167,15 +220,29 @@ window.addEventListener('DOMContentLoaded', function() {
 
     document.querySelectorAll<HTMLElement>('.dropzone').forEach(dropzone => {
       const targetVolume = dropzone.dataset.targetVolume;
-      if (!targetVolume) return;
-      const targetVolumeContainer = document.querySelector<HTMLElement>('[data-volume="'+targetVolume+'"]');
-      if (!targetVolumeContainer) return;
-      const volume = new VFSVolume();
-      addVolumeToElement(volume, targetVolumeContainer);
+      if (targetVolume) {
+        const targetVolumeContainer = document.querySelector<HTMLElement>('[data-volume="'+targetVolume+'"]');
+        if (targetVolumeContainer) {
+          const volume = new VFSVolume();
+          addVolumeToElement(volume, targetVolumeContainer);
+          dropzone.addEventListener('files-drop', ({detail:{files}}) => {
+            function processEntry(dir: VFSDirectory, fm: FileMap) {
+              for (const [name, entry] of fm) {
+                if (entry instanceof File) {
+                  dir.createFile(name, entry, entry.lastModified);
+                }
+                else {
+                  const subdir = dir.createDirectory(name);
+                  processEntry(subdir, entry);
+                }
+              }
+            }
+            processEntry(volume.root, files);
+          });
+        }
+      }
       makeFileReceiver({
         dropTarget: dropzone,
-        button: dropzone,
-        targetDirectory: volume.root,
       });
     });
 

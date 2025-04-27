@@ -11,7 +11,7 @@
   <body>
     <div class="container" data-tab-context>
       <div class="header">
-        <h1>Patching Tool</h1>
+        <h1>Structured Adventure Patch Package (SAPP) Tool</h1>
       </div>
       
       <!-- Main Tabs -->
@@ -22,29 +22,31 @@
       
       <!-- Apply Patch Tab Content -->
       <div class="tab-content active" data-tab-content="apply-patch">
-        <div class="section">
-          <div class="section-header">1. Select Patch File</div>
-          <div class="section-content" data-tab-context>
-            <div class="inner-tabs">
-              <div class="inner-tab active" data-tab="known-patches">Known Patches</div>
-              <div class="inner-tab" data-tab="upload-patch">Upload Patch</div>
-            </div>
-            
-            <div class="inner-tab-content active" data-tab-content="known-patches">
-              <ul class="select-list">
-                <li>KingsQuest1_RubberTreeEdition_v1.0.patch</li>
-              </ul>
-            </div>
-            
-            <div class="inner-tab-content" data-tab-content="upload-patch">
-              <div class="dropzone">
-                <div class="icon">📥</div>
-                <p>Drag and drop patch file here or click to browse</p>
-                <input type="file" id="patch-file-input" style="display: none" accept=".patch" onchange="handleFileSelect(this)">
+        <div class="section patch-section">
+          <div class="section-header">1. Select .SAPP File</div>
+          <div class="section-content">
+            <div class="patch-selection" data-tab-context>
+              <div class="inner-tabs">
+                <div class="inner-tab active" data-tab="known-patches">Known Patches</div>
+                <div class="inner-tab" data-tab="upload-patch">Custom Patch</div>
               </div>
-              <div style="margin-top: 15px; display: none;">
-                <p>Selected patch: <span id="patch-filename"></span></p>
+              
+              <div class="inner-tab-content active" data-tab-content="known-patches">
+                <ul class="select-list">
+                  <li data-url="KingsQuest1_RubberTreeEdition_v1.0_20250428.sapp">KingsQuest1_RubberTreeEdition_v1.0_20250428.sapp</li>
+                </ul>
               </div>
+              
+              <div class="inner-tab-content" data-tab-content="upload-patch">
+                <div class="dropzone" data-file-is="patch-file">
+                  <div class="icon">📥</div>
+                  <p>Drag and drop a .SAPP file here<br>or <a href="#" data-action="choose-file">click here to select one from your file system</a></p>
+                  <input type="file" style="display: none" accept=".sapp">
+                </div>
+              </div>
+            </div>
+            <div class="selected-patch">
+              <p>Selected patch: <span class="patch-filename"></span> <button data-action="cancel-selected-patch">X</button></p>
             </div>
           </div>
         </div>
@@ -54,8 +56,9 @@
           <div class="section-content">
             <div class="dropzone" data-target-volume="files-to-patch">
               <div class="icon">📥</div>
-              <p>Drag and drop files or folders here or click to browse</p>
-              <input type="file" id="target-files-input" style="display: none" webkitdirectory multiple onchange="handleMultipleFiles(this, 'target-files-tree')">
+              <p>Drag and drop files or folders here<br>or <a href="#" data-action="choose-files">select files</a> or <a href="#" data-action="choose-folder">select a folder</a></p>
+              <input type="file" style="display: none" multiple>
+              <input type="file" style="display: none" webkitdirectory>
             </div>
             
           <div id="target-files-tree" class="tree-view" data-volume="files-to-patch">
@@ -77,8 +80,9 @@
               <h3>Original Files</h3>
               <div class="dropzone" data-target-volume="original-files">
                 <div class="icon">📥</div>
-                <p>Drag and drop original files or folders here</p>
-                <input type="file" style="display: none" webkitdirectory multiple>
+                <p>Drag and drop files or folders here<br>or <a href="#" data-action="choose-files">select files</a> or <a href="#" data-action="choose-folder">select a folder</a></p>
+                <input type="file" style="display: none" multiple>
+                <input type="file" style="display: none" webkitdirectory>
               </div>
               
               <div class="tree-view" data-volume="original-files">
@@ -90,8 +94,9 @@
               <h3>Modified Files</h3>
               <div class="dropzone" data-target-volume="modified-files">
                 <div class="icon">📥</div>
-                <p>Drag and drop modified files or folders here</p>
-                <input type="file" style="display: none" webkitdirectory multiple>
+                <p>Drag and drop files or folders here<br>or <a href="#" data-action="choose-files">select files</a> or <a href="#" data-action="choose-folder">select a folder</a></p>
+                <input type="file" style="display: none" multiple>
+                <input type="file" style="display: none" webkitdirectory>
               </div>
               
               <div class="tree-view" data-volume="modified-files">
