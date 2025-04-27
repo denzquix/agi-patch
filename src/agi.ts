@@ -1016,6 +1016,15 @@ export const agisEqual = (agi1: AGIProject, agi2: AGIProject): boolean => {
   return true;
 };
 
+enum AGISection {
+  Logic = 1,
+  Objects,
+  Pictures,
+  Sounds,
+  Views,
+  Words,
+}
+
 export const agiHash = (agi: AGIProject): number => {
   const h = new MurmurHash3();
   const vBytes = new Uint8Array(4);
@@ -1023,6 +1032,7 @@ export const agiHash = (agi: AGIProject): number => {
 
   const i32 = (num: number) => { v.setInt32(0, num, true); h.add(vBytes); };
 
+  i32(AGISection.Logic);
   for (const [i, logic] of agi.logic.entries()) {
     if (!logic || logic.type !== 'logic') continue;
     i32(i);
@@ -1039,6 +1049,7 @@ export const agiHash = (agi: AGIProject): number => {
   }
   i32(-1);
 
+  i32(AGISection.Objects);
   for (const [i, obj] of agi.objects.objects.entries()) {
     i32(i);
     i32(obj.startingRoom || 0);
@@ -1047,6 +1058,7 @@ export const agiHash = (agi: AGIProject): number => {
   }
   i32(-1);
 
+  i32(AGISection.Pictures);
   for (const [i, pic] of agi.pictures.entries()) {
     if (!pic || pic.type !== 'raw-resource') continue;
     i32(i);
@@ -1054,6 +1066,7 @@ export const agiHash = (agi: AGIProject): number => {
   }
   i32(-1);
 
+  i32(AGISection.Sounds);
   for (const [i, snd] of agi.sounds.entries()) {
     if (!snd || snd.type !== 'raw-resource') continue;
     i32(i);
@@ -1061,6 +1074,7 @@ export const agiHash = (agi: AGIProject): number => {
   }
   i32(-1);
 
+  i32(AGISection.Views);
   for (const [i, view] of agi.views.entries()) {
     if (!view || view.type !== 'view') continue;
     i32(i);
@@ -1078,6 +1092,7 @@ export const agiHash = (agi: AGIProject): number => {
   }
   i32(-1);
 
+  i32(AGISection.Words);
   for (const [word, num] of [...agi.words.words].sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)) {
     i32(num);
     i32(word.length);
