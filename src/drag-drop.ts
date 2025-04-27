@@ -199,3 +199,44 @@ function processEntry(entry: FileSystemEntry): Promise<File | FileMap | null> {
     }
   });
 }
+
+const HOVER_MS = 350;
+
+export function clickOnDragHover(el: HTMLElement) {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  const click = () => {
+    el.click();
+  };
+
+  let lastX = NaN, lastY = NaN;
+
+  const clearHover = () => {
+    if (timeout != null) clearTimeout(timeout);
+    timeout = null;
+    lastX = lastY = NaN;
+  }
+
+  el.addEventListener('dragover', (ev) => {
+    ev.preventDefault();
+    if (ev.clientX !== lastX || ev.clientY !== lastY) {
+      lastX = ev.clientX;
+      lastY = ev.clientY;
+      if (timeout != null) clearTimeout(timeout);
+      timeout = setTimeout(click, HOVER_MS);
+    }
+  });
+
+  el.addEventListener('dragenter', function(ev) {
+    ev.preventDefault();
+  });
+
+  el.addEventListener('dragleave', function(ev) {
+    ev.preventDefault();
+    clearHover();
+  });
+
+  el.addEventListener('drop', function(ev) {
+    clearHover();
+  });
+}

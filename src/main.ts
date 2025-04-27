@@ -1,5 +1,5 @@
 import { AGIProject, eachAGIProject } from "./agi";
-import { FileMap, makeFileReceiver } from "./drag-drop";
+import { clickOnDragHover, FileMap, makeFileReceiver } from "./drag-drop";
 import { createAGIPatch } from "./patch-format";
 import { VFSVolume, VFSDirectoryEntry, VFSDirectory, VFSFile } from "./virtual-file-system";
 import { readZip, writeZipStream } from "./zip";
@@ -73,6 +73,10 @@ window.addEventListener('DOMContentLoaded', function() {
           setPatchFile(null);
         };
       });
+    });
+
+    document.querySelectorAll<HTMLElement>('[data-tab]').forEach(tab => {
+      clickOnDragHover(tab);
     });
 
     document.querySelectorAll<HTMLElement>('[data-tab-context]').forEach(tabContext => {
