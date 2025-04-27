@@ -70,6 +70,7 @@ body {
   display: flex;
   background-color: var(--secondary-color);
   border-bottom: 1px solid var(--border-color);
+  padding: 5px 0 0 5px;
 }
 
 .tab {
@@ -122,6 +123,7 @@ body {
   display: flex;
   border-bottom: 1px solid var(--border-color);
   background-color: #f8f8f8;
+  padding: 3px 0 0 5px;
 }
 
 .inner-tab {
