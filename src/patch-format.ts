@@ -16,13 +16,20 @@ export interface PatchObject {
       messages?: {
         [num: number]: BytePatch | null;
       };
+      volNumber?: number;
     };
   };
   pictures?: {
-    [num: number]: null | BytePatch;
+    [num: number]: null | {
+      data?: BytePatch;
+      volNumber?: number;
+    };
   };
   sounds?: {
-    [num: number]: null | BytePatch;
+    [num: number]: null | {
+      data?: BytePatch;
+      volNumber?: number;
+    };
   };
   objects?: {
     [num: number]: null | {
@@ -45,6 +52,7 @@ export interface PatchObject {
           }
         };
       };
+      volNumber?: number;
     };
   };
 }
@@ -195,7 +203,7 @@ export function createAGIPatch(srcAGI: AGIProject, dstAGI: AGIProject): {json:Pa
           messages[i] = dataDiff(null, msgBytes);
         }
       }
-      logicDiff[logic_i] = {bytecode, messages};
+      logicDiff[logic_i] = {bytecode, messages, volNumber:logic2.volNumber};
       continue;
     }
     let bytecode: string | undefined = undefined;
@@ -219,10 +227,12 @@ export function createAGIPatch(srcAGI: AGIProject, dstAGI: AGIProject): {json:Pa
     }
     const bytecodePart = bytecode ? {bytecode} : null;
     const messagePart = Object.keys(messages).length !== 0 ? {messages} : null;
-    if (bytecodePart || messagePart) {
+    const volNumberPart = logic1.volNumber === logic2.volNumber ? null : {volNumber:logic2.volNumber};
+    if (bytecodePart || messagePart || volNumberPart) {
       logicDiff[logic_i] = {
         ...bytecodePart,
         ...messagePart,
+        ...volNumberPart,
       };
     }
   }
@@ -242,8 +252,13 @@ export function createAGIPatch(srcAGI: AGIProject, dstAGI: AGIProject): {json:Pa
     }
     const pic1Data = pic1 && pic1.type === 'raw-resource' ? pic1.data : null;
     const pic2Data = pic2.data;
-    if (pic1Data == null || !byteArraysEqual(pic1Data, pic2Data)) {
-      pictureDiff[pic_i] = dataDiff(pic1Data, pic2Data);
+    const dataPart = pic1Data == null || !byteArraysEqual(pic1Data, pic2Data) ? {data:dataDiff(pic1Data, pic2Data)} : null;
+    const volNumberPart = pic1 && pic1.volNumber !== pic2.volNumber ? {volNumber:pic2.volNumber} : null;
+    if (dataPart || volNumberPart) {
+      pictureDiff[pic_i] = {
+        ...dataPart,
+        ...volNumberPart,
+      };
     }
   }
   if (Object.keys(pictureDiff).length !== 0) {
@@ -262,8 +277,13 @@ export function createAGIPatch(srcAGI: AGIProject, dstAGI: AGIProject): {json:Pa
     }
     const snd1Data = snd1 && snd1.type === 'raw-resource' ? snd1.data : null;
     const snd2Data = snd2.data;
-    if (snd1Data == null || !byteArraysEqual(snd1Data, snd2Data)) {
-      soundDiff[snd_i] = dataDiff(snd1Data, snd2Data);
+    const dataPart = snd1Data == null || !byteArraysEqual(snd1Data, snd2Data) ? {data:dataDiff(snd1Data, snd2Data)} : null;
+    const volNumberPart = snd1 && snd1.volNumber !== snd2.volNumber ? {volNumber:snd2.volNumber} : null;
+    if (dataPart || volNumberPart) {
+      soundDiff[snd_i] = {
+        ...dataPart,
+        ...volNumberPart,
+      };
     }
   }
   if (Object.keys(soundDiff).length !== 0) {
@@ -351,10 +371,12 @@ export function createAGIPatch(srcAGI: AGIProject, dstAGI: AGIProject): {json:Pa
       loops[loop_i] = null;
     }
     const anyLoops = Object.keys(loops).length > 0;
+    const volNumberPart = view1 && view1.volNumber === view2.volNumber ? null : {volNumber:view2.volNumber};
     if (newSignature != null || anyLoops) {
       viewDiff[view_i] = {
         ...(newSignature != null) ? {signature:newSignature} : null,
         ...anyLoops ? {loops} : null,
+        ...volNumberPart,
       };
     }
   }
@@ -438,6 +460,7 @@ export function applyAGIPatch(srcAGI: AGIProject, patchContainer: PatchContainer
           type: 'logic',
           bytecode,
           messages,
+          volNumber: logicEntry.volNumber ?? existingLogic?.volNumber ?? 0,
         };
       }
     }
@@ -485,7 +508,13 @@ export function applyAGIPatch(srcAGI: AGIProject, patchContainer: PatchContainer
           continue;
         }
         const existingPic = (srcAGI.pictures[pic_i]?.type === 'raw-resource') ? srcAGI.pictures[pic_i].data : new Uint8Array(0);
-        pictures[pic_i] = {type:'raw-resource', resourceType:'picture', data:applyDiff(existingPic, bytepool, picEntry), wasCompressed:false};
+        pictures[pic_i] = {
+          type: 'raw-resource',
+          resourceType: 'picture',
+          data: picEntry.data ? applyDiff(existingPic, bytepool, picEntry.data) : existingPic,
+          wasCompressed: false,
+          volNumber: picEntry.volNumber ?? srcAGI.pictures[pic_i]?.volNumber ?? 0,
+        };
       }
     }
 
@@ -498,7 +527,13 @@ export function applyAGIPatch(srcAGI: AGIProject, patchContainer: PatchContainer
           continue;
         }
         const existingSnd = (srcAGI.sounds[snd_i]?.type === 'raw-resource') ? srcAGI.sounds[snd_i].data : new Uint8Array(0);
-        sounds[snd_i] = {type:'raw-resource', resourceType:'sound', data:applyDiff(existingSnd, bytepool, sndEntry), wasCompressed:false};
+        sounds[snd_i] = {
+          type: 'raw-resource',
+          resourceType: 'sound',
+          data:sndEntry.data ? applyDiff(existingSnd, bytepool, sndEntry.data) : existingSnd,
+          wasCompressed: false,
+          volNumber: sndEntry.volNumber ?? srcAGI.sounds[snd_i]?.volNumber ?? 0,
+        };
       }
     }
 
@@ -575,6 +610,7 @@ export function applyAGIPatch(srcAGI: AGIProject, patchContainer: PatchContainer
           type: 'view',
           signature: viewEntry.signature == null ? existingSignature : viewEntry.signature,
           loops: loops as AGILoop[],
+          volNumber: viewEntry.volNumber ?? existingView?.volNumber ?? 0,
         };
       }
     }

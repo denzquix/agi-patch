@@ -164,6 +164,7 @@ export interface AGILogic {
   bytecode: Uint8Array;
   messages: Array<Uint8Array | null>;
   maskMessages?: boolean;
+  volNumber: number;
 }
 
 export interface AGIProject {
@@ -328,6 +329,7 @@ export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject |
         resourceType: type,
         data: decompressed,
         wasCompressed,
+        volNumber,
       };
     }
     else {
@@ -346,6 +348,7 @@ export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject |
         resourceType: type,
         data: vol.subarray(offset + 5, offset + 5 + length),
         wasCompressed: false,
+        volNumber,
       };
     }
   }
@@ -353,8 +356,8 @@ export async function loadAGIProject(folder: VFSDirectory): Promise<AGIProject |
     words,
     objects,
     packedDirs,
-    logic: await Promise.all(readDir(logdir).map(v => v ? loadEntry(v, 'logic').then(x => x.type === 'raw-resource' ? unpackLogic(x.data, !x.wasCompressed) : x) : null)),
-    views: await Promise.all(readDir(viewdir).map(v => v ? loadEntry(v, 'view').then(x => x.type === 'raw-resource' ? unpackView(x.data) : x) : null)),
+    logic: await Promise.all(readDir(logdir).map(v => v ? loadEntry(v, 'logic').then(x => x.type === 'raw-resource' ? unpackLogic(x.data, !x.wasCompressed, v.volNumber) : x) : null)),
+    views: await Promise.all(readDir(viewdir).map(v => v ? loadEntry(v, 'view').then(x => x.type === 'raw-resource' ? unpackView(x.data, v.volNumber) : x) : null)),
     pictures: await Promise.all(readDir(picdir).map(v => v ? loadEntry(v, 'picture') : null)),
     sounds: await Promise.all(readDir(snddir).map(v => v ? loadEntry(v, 'sound') : null)),
   };
@@ -572,13 +575,14 @@ function decompressPIC(pic: Uint8Array) {
   return new Uint8Array(output);
 }
 
-function unpackLogic(buf: Uint8Array, maskMessages: boolean): AGILogic | InvalidLogic {
+function unpackLogic(buf: Uint8Array, maskMessages: boolean, volNumber: number): AGILogic | InvalidLogic {
   const textOffset = 2 + (buf[0] | (buf[1] << 8));
   if (textOffset+3 > buf.byteLength) {
     return {
       type: 'invalid-logic',
       problem: 'truncated',
       data: buf,
+      volNumber,
     };
   }
   const messageCount = buf[textOffset];
@@ -589,6 +593,7 @@ function unpackLogic(buf: Uint8Array, maskMessages: boolean): AGILogic | Invalid
       type: 'invalid-logic',
       problem: 'truncated',
       data: buf,
+      volNumber,
     };
   }
   const messageBlock = textBlock.subarray(2 + messageCount*2);
@@ -606,6 +611,7 @@ function unpackLogic(buf: Uint8Array, maskMessages: boolean): AGILogic | Invalid
           type: 'invalid-logic',
           problem: 'truncated',
           data: buf,
+          volNumber,
         };
       }
       const endOffset = textBlock.indexOf(0, ptr);
@@ -614,6 +620,7 @@ function unpackLogic(buf: Uint8Array, maskMessages: boolean): AGILogic | Invalid
           type: 'invalid-logic',
           problem: 'truncated',
           data: buf,
+          volNumber,
         };
       }
       messages[i] = textBlock.subarray(ptr, endOffset);
@@ -624,6 +631,7 @@ function unpackLogic(buf: Uint8Array, maskMessages: boolean): AGILogic | Invalid
     bytecode: buf.subarray(2, textOffset),
     messages,
     maskMessages,
+    volNumber,
   };
 }
 
@@ -662,12 +670,14 @@ export interface RawResource<T extends 'logic' | 'sound' | 'picture' | 'view' = 
   resourceType: T;
   data: Uint8Array;
   wasCompressed: boolean;
+  volNumber: number;
 }
 
 export interface InvalidLogic {
   type: 'invalid-logic';
   problem: 'truncated';
   data: Uint8Array;
+  volNumber: number;
 }
 
 export interface AGICel {
@@ -686,15 +696,17 @@ export interface AGIView {
   signature: number;
   description?: Uint8Array | null;
   loops: AGILoop[];
+  volNumber: number;
 }
 
 export interface InvalidView {
   type: 'invalid-view';
   problem: 'truncated-view-data' | 'pixel-data-exceeds-row' | 'unknown-signature';
   rawData: Uint8Array;
+  volNumber: number;
 }
 
-function unpackView(data: Uint8Array): AGIView | InvalidResource | InvalidView {
+function unpackView(data: Uint8Array, volNumber: number): AGIView | InvalidResource | InvalidView {
   const signature = data[0] | (data[1] << 8);
   switch (signature) {
     case 0x0100: case 0x0101: case 0x0102: case 0x0200: case 0x0700: case 0x0500: case 0x0103:
@@ -707,6 +719,7 @@ function unpackView(data: Uint8Array): AGIView | InvalidResource | InvalidView {
         type: 'invalid-view',
         problem: 'unknown-signature',
         rawData: data,
+        volNumber,
       };
     }
   }
@@ -742,6 +755,7 @@ function unpackView(data: Uint8Array): AGIView | InvalidResource | InvalidView {
               type: 'invalid-view',
               problem: 'truncated-view-data',
               rawData: data,
+              volNumber,
             };
           }
           const b = data[readPos++];
@@ -755,6 +769,7 @@ function unpackView(data: Uint8Array): AGIView | InvalidResource | InvalidView {
               type: 'invalid-view',
               problem: 'pixel-data-exceeds-row',
               rawData: data,
+              volNumber,
             };
           }
         }
@@ -778,6 +793,7 @@ function unpackView(data: Uint8Array): AGIView | InvalidResource | InvalidView {
     signature,
     description,
     loops,
+    volNumber,
   };
 }
 
