@@ -1,4 +1,4 @@
-import { agiHash, AGIProject } from "./agi";
+import { AGICel, agiHash, AGILoop, AGIProject, ObjectInfo } from "./agi";
 import { diffBytes } from "./diff";
 
 export type BytePatch = string;
@@ -15,6 +15,35 @@ export interface PatchObject {
       bytecode?: BytePatch;
       messages?: {
         [num: number]: BytePatch | null;
+      };
+    };
+  };
+  pictures?: {
+    [num: number]: null | BytePatch;
+  };
+  sounds?: {
+    [num: number]: null | BytePatch;
+  };
+  objects?: {
+    [num: number]: null | {
+      name?: BytePatch;
+      startingRoom?: number;
+    };
+  };
+  views?: {
+    [num: number]: null | {
+      signature?: number;
+      loops?: {
+        [num: number]: null | {
+          cels: {
+            [num: number]: null | {
+              width?: number;
+              height?: number;
+              transparencyColor?: number;
+              pixelData: BytePatch;
+            };
+          }
+        };
       };
     };
   };
@@ -201,10 +230,166 @@ export function createAGIPatch(srcAGI: AGIProject, dstAGI: AGIProject): {json:Pa
     patchObject.logic = logicDiff;
   }
 
+  const picture_count = Math.max(srcAGI.pictures.length, dstAGI.pictures.length);
+  const pictureDiff: PatchObject['pictures'] = {};
+  for (let pic_i = 0; pic_i < picture_count; pic_i++) {
+    const pic1 = srcAGI.pictures[pic_i], pic2 = dstAGI.pictures[pic_i];
+    if (!pic2 || pic2.type !== 'raw-resource') {
+      if (pic1 && pic1.type === 'raw-resource') {
+        pictureDiff[pic_i] = null;
+      }
+      continue;
+    }
+    const pic1Data = pic1 && pic1.type === 'raw-resource' ? pic1.data : null;
+    const pic2Data = pic2.data;
+    if (pic1Data == null || !byteArraysEqual(pic1Data, pic2Data)) {
+      pictureDiff[pic_i] = dataDiff(pic1Data, pic2Data);
+    }
+  }
+  if (Object.keys(pictureDiff).length !== 0) {
+    patchObject.pictures = pictureDiff;
+  }
+
+  const sound_count = Math.max(srcAGI.sounds.length, dstAGI.sounds.length);
+  const soundDiff: PatchObject['sounds'] = {};
+  for (let snd_i = 0; snd_i < sound_count; snd_i++) {
+    const snd1 = srcAGI.sounds[snd_i], snd2 = dstAGI.sounds[snd_i];
+    if (!snd2 || snd2.type !== 'raw-resource') {
+      if (snd1 && snd1.type === 'raw-resource') {
+        soundDiff[snd_i] = null;
+      }
+      continue;
+    }
+    const snd1Data = snd1 && snd1.type === 'raw-resource' ? snd1.data : null;
+    const snd2Data = snd2.data;
+    if (snd1Data == null || !byteArraysEqual(snd1Data, snd2Data)) {
+      soundDiff[snd_i] = dataDiff(snd1Data, snd2Data);
+    }
+  }
+  if (Object.keys(soundDiff).length !== 0) {
+    patchObject.sounds = soundDiff;
+  }
+
+  const view_count = Math.max(srcAGI.views.length, dstAGI.views.length);
+  const viewDiff: PatchObject['views'] = {};
+  for (let view_i = 0; view_i < view_count; view_i++) {
+    const view1 = srcAGI.views[view_i], view2 = dstAGI.views[view_i];
+    if (!view2 || view2.type !== 'view') {
+      if (view1 && view1.type === 'view') {
+        viewDiff[view_i] = null;
+      }
+      continue;
+    }
+    const newSignature = (view1 && view1.type === 'view' && view1.signature === view2.signature) ? null : view2.signature;
+    const loop_count = view2.loops.length;
+    const loops: {
+      [num: number]: null | {
+        cels: {
+          [num: number]: null | {
+            width?: number;
+            height?: number;
+            transparencyColor?: number;
+            pixelData: BytePatch;
+          };
+        }
+      };
+    } = {};
+    const loops1 = view1 && view1.type === 'view' ? view1.loops : [];
+    for (let loop_i = 0; loop_i < view2.loops.length; loop_i++) {
+      const cels1 = loops1[loop_i] && loops1[loop_i].cels || [];
+      const cels2 = view2.loops[loop_i].cels;
+      const cels: {
+        [num: number]: null | {
+          width?: number;
+          height?: number;
+          transparencyColor?: number;
+          pixelData: BytePatch;
+        };
+      } = {};
+      for (let cel_i = 0; cel_i < cels2.length; cel_i++) {
+        const cel1 = cels1[cel_i], cel2 = cels2[cel_i];
+        if (!cel1) {
+          cels[cel_i] = {
+            width: cel2.width,
+            height: cel2.height,
+            transparencyColor: cel2.transparencyColor,
+            pixelData: dataDiff(null, cel2.pixelData),
+          };
+        }
+        else {
+          const newWidth = (cel1.width === cel2.width) ? null : cel2.width;
+          const newHeight = (cel1.height === cel2.height) ? null : cel2.height;
+          const newTransp = (cel1.transparencyColor === cel2.transparencyColor) ? null : cel2.transparencyColor;
+          let pixelDiff: string | null;
+          if (byteArraysEqual(cel1.pixelData, cel2.pixelData)) {
+            pixelDiff = null;
+          }
+          else {
+            const srcData = new Uint8Array(cel2.width * cel2.height);
+            srcData.fill(cel1.transparencyColor);
+            for (let y = 0; y < Math.min(cel1.height, cel2.height); y++) {
+              srcData.set(cel1.pixelData.subarray(cel1.width * y, cel1.width * y + Math.min(cel1.width, cel2.width)), cel2.width * y);
+            }
+            pixelDiff = dataDiff(srcData, cel2.pixelData);
+          }
+          if (newWidth != null || newHeight != null || newTransp != null || pixelDiff != null) {
+            cels[cel_i] = {
+              ... newWidth != null ? {width:newWidth} : null,
+              ... newHeight != null ? {height:newHeight} : null,
+              ... newTransp != null ? {transparencyColor:newTransp} : null,
+              pixelData: pixelDiff || ('='+cel1.pixelData.length),
+            };
+          }
+        }
+      }
+      for (let cel_i = cels2.length; cel_i < cels1.length; cel_i++) {
+        cels[cel_i] = null;
+      }
+      loops[loop_i] = {cels};
+    }
+    for (let loop_i = view2.loops.length; loop_i < loops1.length; loop_i++) {
+      loops[loop_i] = null;
+    }
+    const anyLoops = Object.keys(loops).length > 0;
+    if (newSignature != null || anyLoops) {
+      viewDiff[view_i] = {
+        ...(newSignature != null) ? {signature:newSignature} : null,
+        ...anyLoops ? {loops} : null,
+      };
+    }
+  }
+  if (Object.keys(viewDiff).length !== 0) {
+    patchObject.views = viewDiff;
+  }
+
+  const object_count = dstAGI.objects.objects.length;
+  const objectDiff: PatchObject['objects'] = {};
+  for (let obj_i = 0; obj_i < object_count; obj_i++) {
+    const obj1 = srcAGI.objects.objects[obj_i], obj2 = dstAGI.objects.objects[obj_i];
+    const name1 = obj1 ? obj1.name : new Uint8Array(0);
+    const room1 = obj1 && obj1.startingRoom || 0;
+    const name2 = obj2.name;
+    const room2 = obj2.startingRoom || 0;
+    const nameDiff = byteArraysEqual(name1, name2) ? null : dataDiff(name1, name2);
+    const roomDiff = room1 !== room2 ? room2 : null;
+    if (nameDiff != null || roomDiff != null) {
+      objectDiff[obj_i] = {
+        ...nameDiff != null ? {name:nameDiff} : null,
+        ...roomDiff != null ? {room:roomDiff} : null,
+      };
+    }
+  }
+  for (let obj_i = dstAGI.objects.objects.length; obj_i < srcAGI.objects.objects.length; obj_i++) {
+    objectDiff[obj_i] = null;
+  }
+  if (Object.keys(objectDiff).length !== 0) {
+    patchObject.objects = objectDiff;
+  }
+
   return {
     json: patchContainer,
     bytepool: new Blob(chunks),
-  }
+  };
 }
 
 export function applyAGIPatch(srcAGI: AGIProject, patchContainer: PatchContainer, bytepool: Uint8Array) {
@@ -253,6 +438,143 @@ export function applyAGIPatch(srcAGI: AGIProject, patchContainer: PatchContainer
           type: 'logic',
           bytecode,
           messages,
+        };
+      }
+    }
+
+    if (patch.objects) {
+      const objectList: Array<ObjectInfo | null> = objects.objects.slice();
+      for (const [obj_i_str, objEntry] of Object.entries(patch.objects)) {
+        const obj_i = Number(obj_i_str);
+        if (obj_i >= objectList.length) {
+          objectList.length = obj_i+1;
+        }
+        if (objEntry == null) {
+          objectList[obj_i] = null;
+          continue;
+        }
+        if (!objectList[obj_i]) {
+          if (!objEntry.name) {
+            throw new Error('object with undefined name');
+          }
+          const name = applyDiff(new Uint8Array(0), bytepool, objEntry.name);
+          objectList[obj_i] = {name, startingRoom:objEntry.startingRoom || 0};
+        }
+        else {
+          const name = objEntry.name ? applyDiff(objectList[obj_i].name, bytepool, objEntry.name) : objectList[obj_i].name;
+          objectList[obj_i] = {name, startingRoom:objEntry.startingRoom ?? objectList[obj_i].startingRoom};
+        }
+      }
+      while (objectList.length > 0 && objectList[objectList.length-1] == null) {
+        objectList.length--;
+      }
+      for (let i = 0; i < objectList.length; i++) {
+        if (objectList[i] == null) {
+          throw new Error('gaps in object list');
+        }
+      }
+      objects.objects = objectList as ObjectInfo[];
+    }
+
+    if (patch.pictures) {
+      for (const [pic_i_str, picEntry] of Object.entries(patch.pictures)) {
+        const pic_i = Number(pic_i_str);
+        if (pic_i >= pictures.length) pictures.length = pic_i + 1;
+        if (picEntry === null) {
+          pictures[pic_i] = null;
+          continue;
+        }
+        const existingPic = (srcAGI.pictures[pic_i]?.type === 'raw-resource') ? srcAGI.pictures[pic_i].data : new Uint8Array(0);
+        pictures[pic_i] = {type:'raw-resource', resourceType:'picture', data:applyDiff(existingPic, bytepool, picEntry), wasCompressed:false};
+      }
+    }
+
+    if (patch.sounds) {
+      for (const [snd_i_str, sndEntry] of Object.entries(patch.sounds)) {
+        const snd_i = Number(snd_i_str);
+        if (snd_i >= sounds.length) sounds.length = snd_i + 1;
+        if (sndEntry === null) {
+          sounds[snd_i] = null;
+          continue;
+        }
+        const existingSnd = (srcAGI.sounds[snd_i]?.type === 'raw-resource') ? srcAGI.sounds[snd_i].data : new Uint8Array(0);
+        sounds[snd_i] = {type:'raw-resource', resourceType:'sound', data:applyDiff(existingSnd, bytepool, sndEntry), wasCompressed:false};
+      }
+    }
+
+    if (patch.views) {
+      for (const [view_i_str, viewEntry] of Object.entries(patch.views)) {
+        const view_i = Number(view_i_str);
+        if (view_i >= views.length) views.length = view_i + 1;
+        if (viewEntry == null) {
+          views[view_i] = null;
+          continue;
+        }
+        const existingView = (srcAGI.views[view_i]?.type === 'view') ? srcAGI.views[view_i] : null;
+        const existingSignature = existingView ? existingView.signature : 0x0101;
+        const loops: Array<AGILoop | null> = existingView ? existingView.loops.slice() : [];
+        for (const [loop_i_str, loopEntry] of Object.entries(viewEntry.loops || {})) {
+          const loop_i = Number(loop_i_str);
+          if (loop_i >= loops.length) loops.length = loop_i + 1;
+          if (loopEntry === null) {
+            loops[loop_i] = null;
+          }
+          else {
+            const cels: Array<AGICel | null> = loops[loop_i] ? loops[loop_i].cels.slice() : [];
+            for (const [cel_i_str, celEntry] of Object.entries(loopEntry.cels)) {
+              const cel_i = Number(cel_i_str);
+              if (cel_i >= cels.length) {
+                cels.length = cel_i + 1;
+              }
+              if (celEntry == null) {
+                cels[cel_i] = null;
+                continue;
+              }
+              if (!cels[cel_i]) {
+                if (typeof celEntry.width !== 'number' || typeof celEntry.height !== 'number' || typeof celEntry.transparencyColor !== 'number') {
+                  throw new Error('insufficient data for cel');
+                }
+                cels[cel_i] = {
+                  width: celEntry.width!,
+                  height: celEntry.height!,
+                  transparencyColor: celEntry.transparencyColor!,
+                  pixelData: applyDiff(new Uint8Array(0), bytepool, celEntry.pixelData),
+                };
+              }
+              else {
+                let srcPixels = cels[cel_i].pixelData;
+                const celWidth = celEntry.width ?? cels[cel_i].width;
+                const celHeight = celEntry.height ?? cels[cel_i].height;
+                if (celWidth !== cels[cel_i].width || celHeight !== cels[cel_i].height) {
+                  srcPixels = new Uint8Array(celWidth * celHeight);
+                  srcPixels.fill(cels[cel_i].transparencyColor);
+                  for (let y = 0; y < Math.min(celHeight, cels[cel_i].height); y++) {
+                    srcPixels.set(cels[cel_i].pixelData.subarray(y * cels[cel_i].width, (y+1) * cels[cel_i].width), y * celWidth);
+                  }
+                }
+                cels[cel_i] = {
+                  width: celWidth,
+                  height: celHeight,
+                  transparencyColor: celEntry.transparencyColor ?? cels[cel_i].transparencyColor,
+                  pixelData: applyDiff(srcPixels, bytepool, celEntry.pixelData),
+                };
+              }
+            }
+            while (cels.length > 0 && cels[cels.length-1] == null) {
+              cels.length--;
+            }
+            if (cels.some(v => v == null)) throw new Error('gap in cels');
+            loops[loop_i] = {cels: cels as AGICel[]};
+          }
+        }
+        while (loops.length > 0 && loops[loops.length-1] == null) {
+          loops.length--;
+        }
+        if (loops.some(v => v == null)) throw new Error('gap in loops')
+        views[view_i] = {
+          type: 'view',
+          signature: viewEntry.signature == null ? existingSignature : viewEntry.signature,
+          loops: loops as AGILoop[],
         };
       }
     }

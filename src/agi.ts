@@ -96,7 +96,7 @@ export function packWords({words, suffix = new Uint8Array([0])}: AGIWordsFile) {
   return bytes;
 }
 
-interface ObjectInfo {
+export interface ObjectInfo {
   name: Uint8Array;
   startingRoom?: number;
 }
