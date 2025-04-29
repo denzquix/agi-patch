@@ -448,7 +448,7 @@ function decompressLZW(input: Uint8Array): Uint8Array {
   return new Uint8Array(output);
 }
 
-function compressLZW(input: Uint8Array): Uint8Array {
+export function compressLZW(input: Uint8Array): Uint8Array {
   const INITIAL_BITS = 9;
   const MAX_BITS = 11;
   const LAST_CODE = (1 << MAX_BITS) - 1;
@@ -575,6 +575,54 @@ function decompressPIC(pic: Uint8Array) {
   return new Uint8Array(output);
 }
 
+export function compressPIC(data: Uint8Array): Uint8Array {
+  let out: number[] = [];
+  let halfByte = false;
+  let currentByte = 0;
+
+  function writeHalfByte(n: number): void {
+    if (halfByte) {
+      currentByte |= (n & 0x0f);
+      out.push(currentByte);
+      currentByte = 0;
+      halfByte = false;
+    }
+    else {
+      currentByte = (n & 0x0f) << 4;
+      halfByte = true;
+    }
+  }
+
+  function writeByte(n: number): void {
+    if (halfByte) {
+      currentByte |= n >>> 4;
+      out.push(currentByte);
+      currentByte = (n & 0x0f) << 4;
+    }
+    else {
+      out.push(n);
+    }
+  }
+
+  let i = 0;
+  while (i < data.length) {
+    const b = data[i++];
+    writeByte(b);
+    if (b === 0xf0 || b === 0xf2) {
+      if (i >= data.length) {
+        throw new Error("Missing half-byte after 0xf0 or 0xf2");
+      }
+      writeHalfByte(data[i++]);
+    }
+  }
+
+  if (halfByte) {
+    out.push(currentByte);
+  }
+
+  return new Uint8Array(out);
+}
+
 function unpackLogic(buf: Uint8Array, maskMessages: boolean, volNumber: number): AGILogic | InvalidLogic {
   const textOffset = 2 + (buf[0] | (buf[1] << 8));
   if (textOffset+3 > buf.byteLength) {
@@ -635,24 +683,28 @@ function unpackLogic(buf: Uint8Array, maskMessages: boolean, volNumber: number):
   };
 }
 
-function packLogic(logic: AGILogic): Uint8Array {
+export function packLogic(logic: AGILogic, mask: boolean): Uint8Array {
   const len = 2 + logic.bytecode.length + 1 + logic.messages.length*2 + logic.messages.reduce((total, msg) => total + (msg?msg.length+1:0), 0);
   const bytes = new Uint8Array(len);
   bytes[0] = logic.bytecode.length & 0xff;
   bytes[1] = logic.bytecode.length >>> 8;
   bytes.set(logic.bytecode, 2);
-  bytes[2 + logic.bytecode.length] = logic.messages.length;
+  const messageCount = Math.max(0, logic.messages.length - 1);
+  bytes[2 + logic.bytecode.length] = messageCount;
   const textBlock = bytes.subarray(2 + logic.bytecode.length + 1);
-  let pos = logic.messages.length*2;
-  for (let i = 0; i < logic.messages.length; i++) {
-    const message = logic.messages[i];
+  const startPos = 2 + messageCount*2;
+  textBlock[0] = textBlock.length & 0xff;
+  textBlock[1] = textBlock.length >>> 8;
+  let pos = startPos;
+  for (let i = 0; i < messageCount; i++) {
+    const message = logic.messages[i+1];
     if (!message) continue;
-    textBlock[i*2] = pos & 0xff;
-    textBlock[i*2 + 1] = pos >>> 8;
+    textBlock[2 + i*2] = pos & 0xff;
+    textBlock[2 + i*2 + 1] = pos >>> 8;
     textBlock.set(message, pos);
     pos += message.length + 1;
   }
-  if (logic.maskMessages) avisDurgan(textBlock.subarray(logic.messages.length*2));
+  if (mask) avisDurgan(textBlock.subarray(startPos));
   return bytes;
 }
 
@@ -819,7 +871,7 @@ function areMirroredLoops(loop1: AGILoop, loop2: AGILoop) {
   return true;
 }
 
-function packView(view: AGIView): Uint8Array {
+export function packView(view: AGIView): Uint8Array {
   const mirrorLoops = new Array<number>(view.loops.length).fill(-1);
   for (let loop_i = 0; loop_i < Math.min(view.loops.length, 8) - 1; loop_i++) {
     if (mirrorLoops[loop_i] !== -1) continue;

@@ -365,7 +365,9 @@ export function createAGIPatch(srcAGI: AGIProject, dstAGI: AGIProject): {json:Pa
       for (let cel_i = cels2.length; cel_i < cels1.length; cel_i++) {
         cels[cel_i] = null;
       }
-      loops[loop_i] = {cels};
+      if (Object.keys(cels).length > 0) {
+        loops[loop_i] = {cels};
+      }
     }
     for (let loop_i = view2.loops.length; loop_i < loops1.length; loop_i++) {
       loops[loop_i] = null;
